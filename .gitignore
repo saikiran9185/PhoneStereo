@@ -1,0 +1,21 @@
+.venv/
+__pycache__/
+.DS_Store
+
+# camera captures, session logs and audio (these show the room and the person at the desk)
+logs/
+frames/
+recordings/
+*.jpg
+*.png
+
+# build output and downloaded model
+build_*/
+hand_landmarker.task
+
+# per-setup state, recreated by the apps
+calib.json
+piano_keys.json
+sticky_pads.json
+studio_project.json
+sounds/
