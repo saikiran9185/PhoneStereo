@@ -302,8 +302,8 @@ public class StereoStream {
         } finally {
             try { if (session != null) session.close(); } catch (Throwable ignored) { }
             try { if (dev[0] != null) dev[0].close(); } catch (Throwable ignored) { }
-            for (ImageReader r : readers) r.close();
-            for (HandlerThread t : encThreads) t.quitSafely();
+            for (ImageReader r : readers) if (r != null) r.close();
+            for (HandlerThread t : encThreads) if (t != null) t.quitSafely();
             camThread.quitSafely();
         }
     }

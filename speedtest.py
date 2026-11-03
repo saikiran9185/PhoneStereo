@@ -53,6 +53,31 @@ HINT = {"FIST": "all fingers closed", "OPEN PALM": "all fingers open", "PEACE": 
         "POINT": "index up only", "THUMBS UP": "thumb up, fist", "HORNS": "index + pinky up"}
 
 
+GAMMA = np.array([255 * (i / 255) ** 0.5 for i in range(256)], np.uint8)
+ROT_PATH = os.path.expanduser("~/.config/phonestereo/rotation.json")
+
+
+def hand_angle(det, img):
+    """Direction wrist -> middle knuckle in pixels (degrees, image coords: y down)."""
+    h, w = img.shape[:2]
+    (x0, y0), (x1, y1) = det["lms"][0], det["lms"][9]
+    return np.degrees(np.arctan2((y1 - y0) * h, (x1 - x0) * w))
+
+
+def load_rot():
+    try:
+        with open(ROT_PATH) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {"front": 1, "back": 0}
+
+
+def save_rot(d):
+    os.makedirs(os.path.dirname(ROT_PATH), exist_ok=True)
+    with open(ROT_PATH, "w") as f:
+        json.dump(d, f)
+
+
 class Recorder:
     def __init__(self):
         self.lock = threading.Lock()
@@ -92,6 +117,7 @@ class PhoneTimed(threading.Thread):
         self.rx = V.Receiver(log, host=host, token=token)
         self.rec, self.running, self.error = rec, True, None
         self.camera = "back"
+        self.turn = 0
 
     def run(self):
         from concurrent.futures import ThreadPoolExecutor
@@ -105,14 +131,14 @@ class PhoneTimed(threading.Thread):
         lastts, lastms = [-1, -1], [0, 0]
         h = self.rx.header
         self.camera = "front" if str(h.get("logicalId")) == "1" else "back"
-        # the front sensor is mounted the other way round (270 vs 90 degrees): turn its picture upright
-        orient = h["cameras"][0].get("sensorOrientation", 90)
-        turn = ((orient - 90) // 90) % 4
+        self.turn = load_rot().get(self.camera, 0)    # quarter turns clockwise, R key changes it
 
         def work(cam, f):
             img = S.resize_w(f["img"], S.PW)
-            if turn:
-                img = np.rot90(img, -turn).copy()
+            if self.turn:
+                img = np.ascontiguousarray(np.rot90(img, -self.turn))
+            if self.camera == "front" and cv2.mean(img)[0] < 90:
+                img = cv2.LUT(img, GAMMA)          # dark selfie camera: lift shadows before tracking
             lastms[cam] = max(lastms[cam] + 1, f["ts"] // 1_000_000)
             self.rec.add(CAMS[1 + cam], f["t_recv"], S.detect(trs[cam], img, lastms[cam]), img)
 
@@ -287,6 +313,8 @@ def main():
         img, t, (int(x), int(y)), cv2.FONT_HERSHEY_SIMPLEX, sc, c, th, cv2.LINE_AA)
     cv2.namedWindow(WIN, cv2.WINDOW_AUTOSIZE)
     state, t_intro, t_run, t_done, results = "intro", time.time(), None, None, None
+    align, aligned = [], False
+    mac_only_since = None           # Mac sees the hand but the phone doesn't: try the next rotation      # phone-vs-Mac hand angle samples; auto-rotate the phone view to match
     try:
         while True:
             now = time.time()
@@ -300,11 +328,41 @@ def main():
                 if lab == "phone_main" and phone and phone.camera == "front":
                     lab = "phone FRONT"
                 put(img, f"{lab}: {S.sign_from(det['probs'])[0] if det else 'no hand'}", x, 352, 0.5, (200, 200, 200), 1)
+            if state == "intro" and phone and not aligned:
+                with rec.lock:
+                    mv, pv = rec.view.get("mac"), rec.view.get("phone_main")
+                if mv and pv and mv[1] and not pv[1]:
+                    mac_only_since = mac_only_since or now
+                    if now - mac_only_since > 2.5:
+                        phone.turn = (phone.turn + 1) % 4
+                        mac_only_since = None
+                        log(f"phone sees no hand - trying rotation {phone.turn * 90} deg")
+                else:
+                    mac_only_since = None
+                if mv and pv and mv[1] and pv[1]:
+                    d = (hand_angle(pv[1], pv[0]) - hand_angle(mv[1], mv[0]) + 540) % 360 - 180
+                    align.append(d)
+                    if len(align) >= 12:
+                        q = int(round(float(np.median(align)) / 90)) % 4     # phone is turned q quarter turns clockwise
+                        if q:
+                            phone.turn = (phone.turn - q) % 4
+                            log(f"phone view auto-rotated {q * -90} deg to match the Mac camera")
+                            align.clear()
+                            t_intro = now                                      # re-check after the turn
+                        else:
+                            aligned = True
+                            rr = load_rot()
+                            rr[phone.camera] = phone.turn
+                            save_rot(rr)
+                            log(f"phone view lined up with the Mac (turn {phone.turn})")
             if state == "intro":
-                left = 8 - (now - t_intro)
+                left = (8 if (aligned or not phone) else 20) - (now - t_intro)
+                put(img, ("phone view lined up with the Mac" if aligned else
+                          "hold one open hand up, fingers to the ceiling: lining up the phone view...") if phone else "",
+                    30, 175, 0.55, (80, 220, 80) if aligned else (0, 180, 255), 1)
                 put(img, f"SIGN CUE TEST: {len(seq)} cues, 6 signs. Make the sign shown as fast as you can.",
                     30, 60, 0.7, (0, 220, 255))
-                put(img, "one hand inside all 3 views, other hand down.  SPACE = start"
+                put(img, "one hand inside all views, other hand down.  R = rotate phone view  SPACE = start"
                          f"  (auto in {max(0, left):.0f}s)", 30, 100, 0.6)
                 put(img, "signs: " + " | ".join(f"{k}: {v}" for k, v in HINT.items()), 30, 140, 0.42, (180, 180, 180), 1)
                 if left <= 0:
@@ -375,6 +433,11 @@ def main():
             key = cv2.waitKey(10) & 0xFF
             if key in (ord("q"), 27):
                 break
+            if key == ord("r") and phone and state == "intro":
+                phone.turn = (phone.turn + 1) % 4
+                rr = load_rot()
+                rr[phone.camera] = phone.turn
+                save_rot(rr)
             if key == ord(" ") and state == "intro":
                 state, t_run = "run", time.time() + 1.0
     finally:

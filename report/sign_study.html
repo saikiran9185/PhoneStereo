@@ -77,9 +77,29 @@ code { font: 0.9em var(--mono); }
     <div class="finding"><b>The Mac camera alone was the best single setup</b><p>94% of cues recognised, 85% of settled frames correct and the fastest response. The phone's pair scored 89% and 78%.</p></div>
     <div class="finding"><b>Three cameras matched the Mac but did not beat it</b><p>With fusion learned fairly (never from the session being scored), all three cameras scored the same as the Mac. The difference was −0.1 points, 95% CI −0.3 to 0.</p></div>
     <div class="finding"><b>The thumb causes most errors</b><p>THUMBS UP is read as FIST: the Mac gets it right in 57% of frames and the phone in 9%. Every other sign is 86–98% correct on all setups.</p></div>
-    <div class="finding"><b>The phone adds about 80 ms</b><p>USB transfer plus a lower frame rate (24 vs 30 fps) delay the phone's answer. Wi-Fi works but stalls for up to 0.36 s.</p></div>
+    <div class="finding"><b>The phone's front camera beat the Mac</b><p>In a follow-up session, the selfie camera got 89% of settled frames right vs the Mac's 76% (+13 points, 95% CI +0.3 to +27.5), at only +40 ms. One session, dim light.</p></div>
+    <div class="finding"><b>The back pair adds about 80 ms</b><p>USB transfer plus a lower frame rate (24 vs 30 fps) delay the phone's answer. Wi-Fi works but stalls for up to 0.36 s.</p></div>
   </div>
   <p class="note">An earlier run (Sign Check game, same day, phone at a different angle) found the opposite: Mac 79% → three cameras 89%. Extra cameras only help when they see the hand from a <em>different</em> angle. In today's sessions the phone and the Mac both faced the hand head-on, so they made the same mistakes.</p>
+</section>
+
+<section>
+  <h2>Phone front camera + Mac camera</h2>
+  <p class="prose">A follow-up run used the phone's <b>front (selfie) camera</b>, streamed alone at 30 fps over USB, beside the Mac camera, with the back cameras off. The phone view is turned automatically to match the Mac by comparing the direction of the hand (wrist to middle knuckle) in both views. Dark front frames are brightened before tracking.</p>
+  <div class="scroll"><table>
+    <thead><tr><th>Setup</th><th>Recognised</th><th>Latency (median)</th><th>+Delay</th><th>Settled</th><th>vs Mac, 95% CI</th><th>FIST</th><th>THUMBS UP</th></tr></thead>
+    <tbody>
+      <tr class="hl"><td class="name"><span class="sw" style="background:var(--mac)"></span>Mac camera</td><td>93.3%</td><td>953 ms</td><td>+0 ms</td><td>76.4%</td><td>baseline</td><td class="neg">22%</td><td>60%</td></tr>
+      <tr><td class="name"><span class="sw" style="background:var(--phone)"></span>Phone front camera</td><td>100%</td><td>959 ms</td><td>+40 ms</td><td>89.4%</td><td>+13.0 [+0.3, +27.5]</td><td>76%</td><td>80%</td></tr>
+      <tr><td class="name"><span class="sw" style="background:var(--all3)"></span>Front + Mac, averaged</td><td>100%</td><td>973 ms</td><td>+40 ms</td><td>89.2%</td><td>+12.8 [+3.2, +24.5]</td><td>82%</td><td>72%</td></tr>
+    </tbody></table></div>
+  <ul class="plain">
+    <li><b>The front camera beat the Mac camera</b> by 13 points of settled accuracy, and recognised every cue. The thumb was clearer from its angle: FIST 76% vs 22%, THUMBS UP 80% vs 60%.</li>
+    <li><b>It is faster than the back pair</b>: +40 ms instead of +80 ms, because it runs at 30 fps alone, against 24 fps for two streams.</li>
+    <li><b>Averaging front + Mac</b> was the only combination whose whole confidence range sits above the Mac (+3 to +25 points), and it was the best on FIST (82%).</li>
+    <li><b>In dim light the Mac read FIST as THUMBS UP</b> 78% of the time. The light had faded by this evening session: image brightness was 60 for the Mac (120–128 in the afternoon) and 38 for the front camera before brightening.</li>
+  </ul>
+  <p class="note">Limits: one session of 30 cues in dimmer light than the back-camera sessions, so the two studies are not directly comparable. With one session, fusion trust could only be learned from that same session, so <code>all3_cv</code> is not a fair test here; the plain average is shown instead. An earlier attempt with the view upside down was excluded. Data: <code>logs/speed_20261103_174139</code>, <code>logs/research/results_front.json</code>.</p>
 </section>
 
 <section>
