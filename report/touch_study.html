@@ -1,0 +1,190 @@
+<title>Phone Touch Screen Study</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,750&family=Source+Sans+3:wght@400;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: single lab-report column; verdict first, then each experiment, then what to try next. Same identity as the Sign Study. */
+:root {
+  --bg: #f6f7f9; --panel: #ffffff; --fg: #1b2230; --muted: #5d6676; --rule: #dde1e8;
+  --touch: #1f9a6a; --hover: #c7841a; --accent: #2f6fd6; --bad: #c24a3a;
+  --display: "Bricolage Grotesque", "Avenir Next", system-ui, sans-serif;
+  --body: "Source Sans 3", "Helvetica Neue", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #12161d; --panel: #1a2029; --fg: #e5e9f0; --muted: #9aa3b2; --rule: #2c3442;
+  --touch: #48c992; --hover: #f0aa45; --accent: #6ea2ff; --bad: #f07a68; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #12161d; --panel: #1a2029; --fg: #e5e9f0; --muted: #9aa3b2; --rule: #2c3442;
+  --touch: #48c992; --hover: #f0aa45; --accent: #6ea2ff; --bad: #f07a68; color-scheme: dark }
+body { background: var(--bg); color: var(--fg); font: 17px/1.6 var(--body); }
+.wrap { max-width: 980px; margin: 0 auto; padding-block: 40px 80px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: grid; gap: 44px; }
+h1, h2, h3 { font-family: var(--display); text-wrap: balance; line-height: 1.15; margin: 0; }
+h1 { font-size: clamp(2rem, 5vw, 3rem); font-weight: 750; letter-spacing: -0.02em; }
+h2 { font-size: 1.55rem; font-weight: 750; }
+h3 { font-size: 1.1rem; font-weight: 600; }
+section { display: grid; gap: 16px; min-width: 0; }
+p { margin: 0; }
+.prose { max-width: 70ch; }
+.eyebrow { font: 500 0.75rem var(--mono); text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+.lede { font-size: 1.15rem; color: var(--muted); max-width: 64ch; }
+.meta { font: 0.85rem var(--mono); color: var(--muted); display: flex; flex-wrap: wrap; gap: 6px 18px; }
+.key { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+.finding { background: var(--panel); border: 1px solid var(--rule); border-radius: 8px; padding: 16px 18px; display: grid; gap: 6px; }
+.finding b { font-family: var(--display); font-size: 1.05rem; }
+.finding p { color: var(--muted); font-size: 0.97rem; }
+.scroll { overflow-x: auto; min-width: 0; }
+table { border-collapse: collapse; width: 100%; font-size: 0.95rem; font-variant-numeric: tabular-nums; }
+th, td { padding: 8px 10px; border-bottom: 1px solid var(--rule); text-align: right; white-space: nowrap; }
+th:first-child, td:first-child { text-align: left; white-space: normal; }
+th { font: 500 0.75rem var(--mono); text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+.good { color: var(--touch); } .neg { color: var(--bad); }
+.note { font-size: 0.9rem; color: var(--muted); max-width: 75ch; }
+figure { margin: 0; background: var(--panel); border: 1px solid var(--rule); border-radius: 8px; padding: 18px; display: grid; gap: 10px; min-width: 0; }
+figcaption { font-size: 0.92rem; color: var(--muted); }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 0.88rem; }
+.sw { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 8px; }
+svg text { fill: var(--muted); font: 12px var(--mono); }
+svg .grid { stroke: var(--rule); }
+svg .zero { stroke: var(--muted); stroke-dasharray: 4 4; }
+.f-touch { fill: var(--touch); } .f-hover { fill: var(--hover); } .f-acc { fill: var(--accent); }
+ul.plain, ol.steps { margin: 0; padding-left: 1.2em; display: grid; gap: 6px; max-width: 75ch; }
+.verdict { border-left: 4px solid var(--hover); padding: 4px 0 4px 16px; max-width: 72ch; font-size: 1.05rem; }
+code { font: 0.9em var(--mono); }
+.diagram { font: 13px/1.35 var(--mono); color: var(--muted); background: var(--panel); border: 1px solid var(--rule); border-radius: 8px; padding: 14px 16px; margin: 0; overflow-x: auto; }
+</style>
+
+<div class="wrap">
+<header style="display:grid;gap:14px">
+  <div class="eyebrow">PhoneStereo · Gesture-Based Interaction research · 3 Nov 2026</div>
+  <h1>Phone Touch Screen Study</h1>
+  <p class="lede">Can one phone turn an ordinary 27-inch monitor into a touch screen, as a step toward a touch-sensitive projected wall? Two placements were tested: phone at the side, and phone low in front like a projector, using its two back lenses for depth.</p>
+  <div class="meta"><span>2 sessions</span><span>44 targets (32 touch, 12 hover)</span><span>1,229 analysed stereo frames</span><span>27" monitor, 2560×1440</span><span>POCO M4 Pro</span></div>
+</header>
+
+<section>
+  <h2>Verdict</h2>
+  <p class="verdict">The phone finds the screen and maps a finger onto it accurately: screen fit 1.5 mm, and 4–14 mm from the target when the hand was tracked. It <b>cannot yet tell a touch from a hover</b>. The two back lenses are 1 cm apart, which gives a depth signal of 1.4 px per 3 cm. The shift wobbles by 3.7 px from frame to frame, so touching and hovering overlap. A touch screen needs a camera that looks across the glass, or two cameras much further apart.</p>
+  <div class="key">
+    <div class="finding"><b>Finding the screen works</b><p>Both lenses found 11 of the 15 markers in under a second. Screen mapping error was 1.5 mm, and the two lenses lined up to 1.0 px.</p></div>
+    <div class="finding"><b>Stereo depth is too weak</b><p>Hovering 3 cm off the glass shifted the finger by 1.4 px, but the shift varied by 3.7 px at a single target. Touch vs hover was told apart 66% of the time (50% = guessing).</p></div>
+    <div class="finding"><b>One camera from the front can't see depth at all</b><p>Without stereo, every hover frame (100%) lined up with the screen and would count as a touch. Stereo is necessary; it just isn't strong enough at a 1 cm baseline.</p></div>
+    <div class="finding"><b>The low angle costs hand tracking</b><p>The main lens found the hand in 69% of frames: 80% near the bottom of the screen, 51% near the top. The ultra-wide lens managed only 18%.</p></div>
+  </div>
+</section>
+
+<section>
+  <h2>Two placements tested</h2>
+<pre class="diagram">  A · SIDE (18:10)                         B · FRONT-LOW STEREO (18:26)
+
+  ┌───────────────────────┐                ┌───────────────────────┐
+  │        monitor        │                │        monitor        │
+  └───────────────────────┘                └───────────────────────┘
+ 📱 ↗ phone at a corner,                              ↑ ↑  main + ultra-wide
+     meant to look ACROSS the glass                   📱   low, in front, facing the screen
+     (in the test it faced the screen)                     person behind the phone</pre>
+  <div class="scroll"><table>
+    <thead><tr><th>Measure</th><th>A · side, 1 lens</th><th>B · front-low, 2 lenses</th></tr></thead>
+    <tbody>
+      <tr><td>Calibration</td><td>9 touched dots</td><td>15 on-screen markers, no touching</td></tr>
+      <tr><td>Screen mapping error</td><td>5.6 mm</td><td class="good">1.5 mm</td></tr>
+      <tr><td>Touch targets registered</td><td class="neg">6 / 16 (38%)</td><td>16 / 16 (100%)</td></tr>
+      <tr><td>Touches inside the 10.6 mm target</td><td class="neg">1 / 16</td><td class="neg">2 / 16</td></tr>
+      <tr><td>Position error, first touch (median)</td><td>17 mm</td><td class="neg">171 mm</td></tr>
+      <tr><td>False touches while hovering (6 hover tasks)</td><td>1</td><td class="neg">33</td></tr>
+      <tr><td>Extra touches</td><td>0</td><td class="neg">15</td></tr>
+      <tr><td>Phone frame rate · processing</td><td>24 fps · 26 ms</td><td>24 fps · 38 ms</td></tr>
+    </tbody></table></div>
+  <p class="note">Placement A failed for a different reason: the phone ended up facing the screen (flatness 0.74, where a grazing view is under 0.2). From the front, a hovering finger lines up with the screen behind it, so touches never ended: one stayed "down" for 41 s. The app now checks this flatness after calibration and warns when it's too high.</p>
+</section>
+
+<section>
+  <h2>Why stereo depth failed (B)</h2>
+  <figure>
+    <div class="legend"><span><span class="sw" style="background:var(--touch)"></span>touching a target</span><span><span class="sw" style="background:var(--hover)"></span>hovering 2–5 cm over a target</span></div>
+    <div class="scroll"><svg id="c-shift" role="img" aria-label="Median finger shift per target, touch and hover overlap"></svg></div>
+    <figcaption>Median finger shift between the lenses at each target, with the frame-to-frame spread (±1 sd = 3.7 px). Touch and hover sit in the same band. Hovering 3 cm off the glass moves the shift by only 1.4 px (the bracket), less than half the spread.</figcaption>
+  </figure>
+  <ul class="plain">
+    <li><b>The measurement itself was reliable.</b> The finger patch matched between the lenses with a median correlation of 0.93, and only 1% of frames fell below 0.5. On synthetic images the same method is accurate to 0.04 px.</li>
+    <li><b>The problem is geometry.</b> The lenses are 1 cm apart and the finger was about 40–60 cm away. A finger 3 cm off the glass shifts by only about 1.4 px, close to the theoretical f·B·d / Z².</li>
+    <li><b>Real noise is about 100× the synthetic noise.</b> The ultra-wide lens has lower resolution and strong barrel distortion, which a plane mapping can't remove. The finger also looks slightly different to each lens, and the patch behind the tip is partly off the glass. Together these make the 3.7 px spread.</li>
+    <li>The one-point depth calibration recorded a 4.8 px shift at touch and 11 px of noise while hovering, so the "WEAK" warning was correct before the test began.</li>
+  </ul>
+</section>
+
+<section>
+  <h2>Hand tracking from a low angle</h2>
+  <figure>
+    <div class="scroll"><svg id="c-det" role="img" aria-label="Hand found rate by screen region and lens"></svg></div>
+    <figcaption>Share of frames where a hand was found, by the target's height on the screen (main lens), and overall for the ultra-wide lens. Near the top of the screen the hand is further away and seen steeply from below.</figcaption>
+  </figure>
+  <p class="note">Mapping is accurate when the hand is tracked: in 4 of the 16 touch tasks the fingertip came within 0–14 mm of the target. The 171 mm median error comes from frames where the tracker lost the hand or picked a wrong point.</p>
+</section>
+
+<section>
+  <h2>What would make it work</h2>
+  <div class="scroll"><table>
+    <thead><tr><th>Option</th><th>Depth signal for 3 cm</th><th>Needs</th><th>Expected</th></tr></thead>
+    <tbody>
+      <tr><td><b>Phone looking across the glass</b> (side, lens 2–3 cm off the screen)</td><td>direct: finger leaves the strip</td><td>careful placement, flatness under 0.2</td><td class="good">best for touch on a monitor</td></tr>
+      <tr><td><b>Projector shadow</b>: finger meets its own shadow</td><td>direct</td><td>a projector (not a monitor)</td><td class="good">good on a wall, already used in StickyBeat</td></tr>
+      <tr><td><b>Mac camera + phone</b> as a wide stereo pair (20–30 cm apart)</td><td>about 30–40 px (20–30× more)</td><td>both cameras see the hand near the screen</td><td>strong depth, more setup</td></tr>
+      <tr><td>Phone back pair, 1 cm (this test)</td><td class="neg">1.4 px</td><td>nothing extra</td><td class="neg">too weak (AUC 0.66)</td></tr>
+    </tbody></table></div>
+  <h3>Next steps</h3>
+  <ol class="steps">
+    <li>Repeat placement A with the phone truly looking across the glass, where the app should report flatness under 0.2. This is the quickest route to a working monitor touch screen.</li>
+    <li>On the projector wall, combine the shadow test with the front view: shadow for touch, front view for position. That fits the presentation project.</li>
+    <li>If depth from the front is still wanted, use the Mac camera and the phone as a 20–30 cm stereo pair.</li>
+    <li>Low-angle tracking: crop around the last hand position at full resolution before tracking, and raise the phone slightly so the top of the screen isn't so steep.</li>
+  </ol>
+</section>
+
+<section>
+  <h2>Method</h2>
+  <ul class="plain">
+    <li><b>Screen calibration (B):</b> 15 ArUco markers shown full-screen. Main-lens to screen mapping and ultra-wide to main mapping fitted with RANSAC from the marker corners both lenses saw.</li>
+    <li><b>Depth:</b> the ultra-wide frame is warped onto the main one so the screen plane lines up. A finger patch just behind the tip is matched with normalised cross-correlation, then refined to sub-pixel. The shift along the direction learned from touch-then-hover gives the depth score.</li>
+    <li><b>Test:</b> 16 touch targets (10.6 mm radius) and 6 hover targets, random positions, one at a time. Every frame was logged: hand found per lens, screen point, depth score, match quality.</li>
+    <li><b>Limits:</b> one person, one session per placement. Placement A was set up wrongly, so it is not a fair test of the side method.</li>
+  </ul>
+  <p class="note">Data: <code>logs/touch_20261103_181002</code> (A), <code>logs/touch3d_20261103_182640</code> (B, summary + 1,229-frame CSV). Code: <code>touchscreen.py</code>, <code>touch3d.py</code> in PhoneStereo.</p>
+</section>
+</div>
+
+<script>
+const NS = "http://www.w3.org/2000/svg";
+function el(t, a, p, txt) { const e = document.createElementNS(NS, t); for (const k in a) e.setAttribute(k, a[k]); if (txt !== undefined) e.textContent = txt; p.appendChild(e); return e; }
+(function shiftChart() {
+  const pts = [["HOVER",350,-3.7],["HOVER",410,-2.99],["HOVER",505,-3.22],["HOVER",653,-2.31],["HOVER",1000,-1.24],["HOVER",1103,-3.74],
+               ["TOUCH",508,-3.52],["TOUCH",933,-3.91],["TOUCH",1164,-3.68]];
+  const svg = document.getElementById("c-shift"), W = 880, H = 300, L = 60, R = 20, T = 20, B = 44;
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`); svg.setAttribute("width", W); svg.style.maxWidth = "100%"; svg.style.minWidth = "560px";
+  const x = v => L + (W - L - R) * (v - 300) / (1200 - 300), y = v => T + (H - T - B) * (2 - v) / 10;
+  for (const v of [2, 0, -2, -4, -6, -8]) { el("line", {x1: L, x2: W - R, y1: y(v), y2: y(v), class: "grid"}, svg); el("text", {x: L - 8, y: y(v) + 4, "text-anchor": "end"}, svg, v + " px"); }
+  for (const v of [300, 600, 900, 1200]) el("text", {x: x(v), y: H - 22, "text-anchor": "middle"}, svg, v);
+  el("text", {x: (L + W - R) / 2, y: H - 4, "text-anchor": "middle"}, svg, "target height on screen (pt from top)");
+  pts.forEach(([k, ty, s]) => {
+    const cls = k === "TOUCH" ? "f-touch" : "f-hover", xx = x(ty) + (k === "TOUCH" ? 6 : -6);
+    el("rect", {x: xx - 1, y: y(s + 3.67), width: 2, height: y(s - 3.67) - y(s + 3.67), class: cls, opacity: 0.45}, svg);
+    el("circle", {cx: xx, cy: y(s), r: 6, class: cls}, svg);
+  });
+  const bx = W - R - 40;
+  el("rect", {x: bx, y: y(-2), width: 3, height: y(-3.38) - y(-2), class: "f-acc"}, svg);
+  el("text", {x: bx - 6, y: y(-2.7) + 4, "text-anchor": "end"}, svg, "3 cm = 1.4 px");
+})();
+(function detChart() {
+  const rows = [["main · top third", 51], ["main · middle", 75], ["main · bottom third", 80], ["main · all", 69.4], ["ultra-wide · all", 17.7]];
+  const svg = document.getElementById("c-det"), W = 880, rh = 36, L = 170, R = 60, H = rows.length * rh + 34;
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`); svg.setAttribute("width", W); svg.style.maxWidth = "100%"; svg.style.minWidth = "520px";
+  const x = v => L + (W - L - R) * v / 100;
+  for (const v of [0, 25, 50, 75, 100]) { el("line", {x1: x(v), x2: x(v), y1: 4, y2: H - 24, class: "grid"}, svg); el("text", {x: x(v), y: H - 6, "text-anchor": "middle"}, svg, v + "%"); }
+  rows.forEach(([lab, v], i) => { const yy = 8 + i * rh;
+    el("text", {x: L - 10, y: yy + 16, "text-anchor": "end"}, svg, lab);
+    el("rect", {x: x(0), y: yy + 3, width: x(v) - x(0), height: 18, class: lab.startsWith("ultra") ? "f-hover" : "f-acc"}, svg);
+    el("text", {x: x(v) + 6, y: yy + 16}, svg, v + "%"); });
+})();
+</script>
