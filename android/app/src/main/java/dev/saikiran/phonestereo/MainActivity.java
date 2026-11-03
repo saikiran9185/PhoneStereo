@@ -154,7 +154,9 @@ public class MainActivity extends Activity {
         camBtn = button(camLabel(), Color.rgb(200, 190, 255));
         camBtn.setOnClickListener(v -> {
             if (proc != null) { log("stop the stream before switching camera"); return; }
-            getSharedPreferences("ps", MODE_PRIVATE).edit().putString("cam", "1".equals(camId()) ? "4" : "1").apply();
+            String c = camId();
+            String next = "4".equals(c) ? "0" : "0".equals(c) ? "1" : "4";      // pair -> back main -> front
+            getSharedPreferences("ps", MODE_PRIVATE).edit().putString("cam", next).apply();
             camBtn.setText(camLabel());
         });
         col.addView(camBtn);
@@ -270,10 +272,14 @@ public class MainActivity extends Activity {
         return (Process) m.invoke(null, new String[]{"sh", "-c", cmd}, null, null);
     }
 
-    // "4" = back logical camera (main + ultra-wide together), "1" = front (selfie) camera alone.
+    // "4" = back logical camera (main + ultra-wide together), "0" = back main alone, "1" = front (selfie) alone.
     String camId() { return getSharedPreferences("ps", MODE_PRIVATE).getString("cam", "4"); }
 
-    String camLabel() { return "1".equals(camId()) ? "Camera: FRONT (selfie)  · tap to switch" : "Camera: BACK pair (main + wide)  · tap to switch"; }
+    String camLabel() {
+        String c = camId();
+        return ("1".equals(c) ? "Camera: FRONT (selfie)" : "0".equals(c) ? "Camera: BACK main only (touch screen)"
+                : "Camera: BACK pair (main + wide)") + "  · tap to switch";
+    }
 
     void start() {
         try {

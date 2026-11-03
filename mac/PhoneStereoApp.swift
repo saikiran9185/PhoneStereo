@@ -1,6 +1,7 @@
 // PhoneStereo for Mac: finds the phone app over Bonjour, pairs with its 4-digit code, asks macOS for
 // camera access, and runs the vision modes (Python, in this project folder) as child processes, so the
 // camera and local-network permissions belong to this app.
+import ApplicationServices
 import AVFoundation
 import Network
 import SwiftUI
@@ -16,6 +17,7 @@ enum Mode: String, CaseIterable, Identifiable {
     case signs3 = "Sign Check · 3 cameras"
     case depth = "Live depth"
     case signsPhone = "Sign Check · phone only"
+    case touch = "Touch Screen"
     case speed = "Sign Cue Test (research)"
     case link = "Link test"
     var id: String { rawValue }
@@ -25,6 +27,7 @@ enum Mode: String, CaseIterable, Identifiable {
         case .air: "airbuttons.py"
         case .link: "linktest.py"
         case .speed: "speedtest.py"
+        case .touch: "touchscreen.py"
         default: "signs.py"
         }
     }
@@ -299,7 +302,13 @@ final class Model: ObservableObject {
     private func start(_ mode: Mode, ip: String) {
         var args = [mode.script, "--host", ip, "--token", code.trimmingCharacters(in: .whitespaces)] + mode.extra
         if link == .usb && mode != .link { _ = runAdb(["-s", usbSerial ?? "", "forward", "tcp:27183", "tcp:27183"]) }
-        if mode.needsMacCamera && camera != .authorized && mode == .air {
+        if mode == .touch && !AXIsProcessTrusted() {
+            // Live touch posts mouse clicks and arrow keys: macOS asks for Accessibility once.
+            let opts = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
+            _ = AXIsProcessTrustedWithOptions(opts)
+            append("Touch Screen: allow PhoneStereo in System Settings > Privacy & Security > Accessibility for LIVE mode (calibration and test work without it).")
+        }
+        if mode.needsMacCamera && camera != .authorized && (mode == .air || mode == .touch) {
             append("Air Buttons needs the Mac camera. Allow it in Settings, then run again.")
             return
         }
@@ -437,7 +446,7 @@ struct ContentView: View {
                         Text(mode.rawValue).frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.borderedProminent)
-                    .tint(mode == .air ? .green : mode == .speed ? .pink : mode == .depth ? .cyan : mode == .link ? .gray : .orange)
+                    .tint(mode == .touch ? .blue : mode == .air ? .green : mode == .speed ? .pink : mode == .depth ? .cyan : mode == .link ? .gray : .orange)
                     .controlSize(.large)
                     .disabled(m.ip == nil || m.running != nil)
                 }
