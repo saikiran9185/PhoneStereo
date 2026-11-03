@@ -65,6 +65,14 @@ weak sign (read as FIST). USB: longest stall 68 ms vs 355 ms on Wi-Fi.
 **Front camera**: the phone app's *Camera* button switches between the back pair (main + ultra-wide) and the front
 selfie camera, streamed alone.
 
+## SurfaceTouch: projector wall touch (V1)
+
+Touch a projected wall with your finger. The phone's main + ultra-wide cameras track the hand, and the
+projector's **shadow** of the finger decides touch vs hover. Includes the setup wizard, the touch-vs-hover
+experiment (trains the contact model), an accuracy grid, a demo wall, and live slide control.
+`run_surfacetouch.py`, package `surfacetouch/`, tests in `tests/`. Full guide and projector checklist:
+[docs/SURFACETOUCH.md](docs/SURFACETOUCH.md). Background: [Touch Screen Study](report/touch_study.html).
+
 ## Apps
 | Script | What it does |
 |---|---|

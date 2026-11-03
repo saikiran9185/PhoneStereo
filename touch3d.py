@@ -83,10 +83,11 @@ def parallax(ga, gb, Hp, lm):
 class Pair(threading.Thread):
     """Synced main + ultra-wide frames -> hand landmarks in both, fingertip parallax."""
 
-    def __init__(self, log, host, token, turn):
+    def __init__(self, log, host, token, turn, boost=True):
         super().__init__(daemon=True)
         self.rx = V.Receiver(log, host=host, token=token)
         self.turn, self.running, self.error = turn, True, None
+        self.boost = boost          # brighten dark frames (off for SurfaceTouch: it compares raw brightness)
         self.lock = threading.Lock()
         self.latest = None
         self.Hp = None
@@ -127,7 +128,7 @@ class Pair(threading.Thread):
                 im = f["img"]
                 if self.turn:
                     im = np.ascontiguousarray(np.rot90(im, -self.turn))
-                if cv2.mean(im)[0] < 90:
+                if self.boost and cv2.mean(im)[0] < 90:
                     im = cv2.LUT(im, GAMMA)
                 imgs.append(im)
 
