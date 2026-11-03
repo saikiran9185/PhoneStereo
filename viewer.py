@@ -108,9 +108,13 @@ class Phone:
 
 
 class Receiver(threading.Thread):
-    def __init__(self, log):
+    """Reads the phone's stream. host 127.0.0.1 = USB/adb forward; a phone IP = the PhoneStereo app
+    over Wi-Fi, which needs the 4-digit pairing code (token) before it sends anything."""
+
+    def __init__(self, log, host="127.0.0.1", token=None, port=PORT):
         super().__init__(daemon=True)
         self.log = log
+        self.host, self.token, self.port = host, token, port
         self.lock = threading.Lock()
         self.frames = [collections.deque(maxlen=8), collections.deque(maxlen=8)]
         self.header = None
@@ -135,14 +139,19 @@ class Receiver(threading.Thread):
             deadline = time.time() + 10
             while True:
                 try:
-                    self.sock = socket.create_connection(("127.0.0.1", PORT), timeout=5)
+                    self.sock = socket.create_connection((self.host, self.port), timeout=5)
+                    if self.token:
+                        self.sock.sendall(f"PS {self.token}\n".encode())
                     break
                 except OSError:
                     if time.time() > deadline:
                         raise
                     time.sleep(0.3)
             self.sock.settimeout(10)
-            magic, n = struct.unpack(">II", self._exact(8))
+            first = self._exact(8)
+            if first.startswith(b"ERR"):
+                raise ConnectionError("phone refused: wrong pairing code")
+            magic, n = struct.unpack(">II", first)
             if magic != MAGIC_HEADER:
                 raise ConnectionError(f"bad header magic {magic:#x}")
             self.header = json.loads(self._exact(n).decode())
@@ -341,11 +350,11 @@ class Viewer:
     def run(self):
         a = self.args
         self.log(f"session start - log {self.csv_path}")
-        self.phone = Phone(self.log, a) if not a.no_phone else None
+        self.phone = Phone(self.log, a) if not (a.no_phone or a.host) else None
         if self.phone:
             self.log("starting phone streamer ...")
             self.phone.start()
-        self.rx = Receiver(self.log)
+        self.rx = Receiver(self.log, host=a.host or "127.0.0.1", token=a.token)
         self.rx.start()
         self.rx.header_ready.wait(15)
         if self.rx.error or not self.rx.header:
@@ -816,6 +825,8 @@ def main():
     ap.add_argument("--headless", action="store_true", help="no window (logs + logs/latest_view.jpg only)")
     ap.add_argument("--duration", type=float, default=0, help="stop after N seconds")
     ap.add_argument("--no-phone", action="store_true", help="streamer already running on the phone")
+    ap.add_argument("--host", help="phone IP: connect to the PhoneStereo app over Wi-Fi (no adb)")
+    ap.add_argument("--token", help="pairing code shown in the phone app")
     args = ap.parse_args()
     try:
         Viewer(args).run()
