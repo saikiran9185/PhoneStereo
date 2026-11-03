@@ -1,0 +1,218 @@
+<title>SurfaceTouch V1</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,750&family=Source+Sans+3:wght@400;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: single technical-report column. Thesis, evidence, mechanism, verification, test plan. Same identity as the PhoneStereo study reports, with a projector-light accent. */
+:root {
+  --bg: #f6f7f9; --panel: #ffffff; --fg: #1b2230; --muted: #5d6676; --rule: #dde1e8;
+  --light: #e8b100; --shadow: #3b3f8f; --touch: #1f9a6a; --hover: #c7841a; --accent: #2f6fd6; --bad: #c24a3a;
+  --display: "Bricolage Grotesque", "Avenir Next", system-ui, sans-serif;
+  --body: "Source Sans 3", "Helvetica Neue", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #12161d; --panel: #1a2029; --fg: #e5e9f0; --muted: #9aa3b2; --rule: #2c3442;
+  --light: #f5c842; --shadow: #8d92ef; --touch: #48c992; --hover: #f0aa45; --accent: #6ea2ff; --bad: #f07a68; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #12161d; --panel: #1a2029; --fg: #e5e9f0; --muted: #9aa3b2; --rule: #2c3442;
+  --light: #f5c842; --shadow: #8d92ef; --touch: #48c992; --hover: #f0aa45; --accent: #6ea2ff; --bad: #f07a68; color-scheme: dark }
+body { background: var(--bg); color: var(--fg); font: 17px/1.6 var(--body); }
+.wrap { max-width: 980px; margin: 0 auto; padding-block: 40px 80px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: grid; gap: 44px; }
+h1, h2, h3 { font-family: var(--display); text-wrap: balance; line-height: 1.15; margin: 0; }
+h1 { font-size: clamp(2rem, 5vw, 3rem); font-weight: 750; letter-spacing: -0.02em; }
+h2 { font-size: 1.55rem; font-weight: 750; }
+h3 { font-size: 1.1rem; font-weight: 600; }
+section { display: grid; gap: 16px; min-width: 0; }
+p { margin: 0; }
+.prose { max-width: 70ch; }
+.eyebrow { font: 500 0.75rem var(--mono); text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+.lede { font-size: 1.15rem; color: var(--muted); max-width: 64ch; }
+.meta { font: 0.85rem var(--mono); color: var(--muted); display: flex; flex-wrap: wrap; gap: 6px 18px; }
+.status { display: inline-flex; gap: 8px; align-items: center; font: 500 0.8rem var(--mono); padding: 4px 10px; border-radius: 99px; border: 1px solid var(--rule); background: var(--panel); width: fit-content; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--hover); }
+.key { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+.finding { background: var(--panel); border: 1px solid var(--rule); border-radius: 8px; padding: 16px 18px; display: grid; gap: 6px; align-content: start; }
+.finding b { font-family: var(--display); font-size: 1.05rem; }
+.finding p { color: var(--muted); font-size: 0.97rem; }
+.scroll { overflow-x: auto; min-width: 0; }
+table { border-collapse: collapse; width: 100%; font-size: 0.95rem; font-variant-numeric: tabular-nums; }
+th, td { padding: 8px 10px; border-bottom: 1px solid var(--rule); text-align: left; vertical-align: top; }
+td.n, th.n { text-align: right; white-space: nowrap; }
+th { font: 500 0.75rem var(--mono); text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+.good { color: var(--touch); } .neg { color: var(--bad); } .pending { color: var(--muted); font-style: italic; }
+.note { font-size: 0.9rem; color: var(--muted); max-width: 75ch; }
+figure { margin: 0; background: var(--panel); border: 1px solid var(--rule); border-radius: 8px; padding: 18px; display: grid; gap: 10px; min-width: 0; }
+figcaption { font-size: 0.92rem; color: var(--muted); max-width: 80ch; }
+svg text { fill: var(--muted); font: 12px var(--mono); }
+svg .ink { stroke: var(--fg); fill: none; }
+svg .wall { fill: var(--rule); }
+svg .beam { fill: var(--light); opacity: 0.22; }
+svg .ray { stroke: var(--light); stroke-width: 1.5; stroke-dasharray: 5 4; fill: none; }
+svg .sh { fill: var(--shadow); }
+svg .cam { stroke: var(--accent); stroke-width: 1.5; stroke-dasharray: 2 3; fill: none; }
+svg .finger { fill: var(--fg); }
+svg .lbl { fill: var(--fg); font: 600 13px var(--body); }
+.flow { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.step { background: var(--panel); border: 1px solid var(--rule); border-radius: 8px; padding: 12px 14px; display: grid; gap: 4px; align-content: start; }
+.step b { font-family: var(--display); font-size: 0.98rem; }
+.step span { font-size: 0.88rem; color: var(--muted); }
+.step code { font-size: 0.78rem; color: var(--accent); }
+ul.plain, ol.steps { margin: 0; padding-left: 1.2em; display: grid; gap: 6px; max-width: 78ch; }
+.verdict { border-left: 4px solid var(--light); padding: 4px 0 4px 16px; max-width: 72ch; font-size: 1.05rem; }
+code { font: 0.9em var(--mono); }
+.states { font: 13px/1.5 var(--mono); color: var(--fg); background: var(--panel); border: 1px solid var(--rule); border-radius: 8px; padding: 14px 16px; margin: 0; overflow-x: auto; }
+</style>
+
+<div class="wrap">
+<header style="display:grid;gap:14px">
+  <div class="eyebrow">PhoneStereo · Gesture-Based Interaction research · technical prototype</div>
+  <h1>SurfaceTouch V1</h1>
+  <p class="lede">A projected wall becomes a touch surface: one phone tracks the hand with its main and ultra-wide cameras, and the finger's own projected shadow tells the system whether the finger is on the wall or in the air.</p>
+  <div class="status"><span class="dot"></span>Built and checked on synthetic data, 3 Nov 2026 · first projector session 4 Nov</div>
+  <div class="meta"><span>Python · OpenCV · MediaPipe</span><span>POCO M4 Pro, back camera pair</span><span>Mac + any projector</span><span>branch wireless-apps-3cam</span></div>
+</header>
+
+<section>
+  <h2>Why the shadow</h2>
+  <p class="verdict">The Touch Screen Study showed that the phone maps a finger onto a screen to within millimetres but can't measure its distance from the screen. The two back lenses are 1 cm apart. A finger 3 cm off the surface shifted by only 1.4 px between them, while the measurement wobbled by 3.7 px. A projector gives a much stronger cue for free: a finger in the air casts a shadow beside itself, and the shadow joins the finger only at contact.</p>
+  <div class="key">
+    <div class="finding"><b>Stereo alone: 0.66</b><p>Touch vs hover separation score from the 1 cm lens pair (0.5 = guessing, 1.0 = perfect). Too weak to drive touch.</p></div>
+    <div class="finding"><b>One camera from the front: 100% false</b><p>Without depth, every hover frame lined up with the screen and would count as a touch.</p></div>
+    <div class="finding"><b>Mapping: 1.5 mm</b><p>The wall-mapping step already works. Position is not the problem, contact is.</p></div>
+  </div>
+</section>
+
+<section>
+  <h2>How the shadow encodes contact</h2>
+  <figure>
+    <div class="scroll"><svg id="geo" viewBox="0 0 880 300" width="880" style="max-width:100%;min-width:600px" role="img" aria-label="Side view: projector light, finger and shadow when touching and hovering">
+      <rect class="wall" x="820" y="20" width="16" height="250"/>
+      <text x="828" y="290" text-anchor="middle">wall</text>
+      <g id="proj"><rect x="20" y="60" width="54" height="34" rx="4" fill="var(--light)"/><text x="47" y="112" text-anchor="middle">projector</text></g>
+      <g><rect x="40" y="226" width="22" height="36" rx="4" fill="var(--accent)"/><text x="51" y="282" text-anchor="middle">phone</text></g>
+      <!-- touching finger -->
+      <path class="finger" d="M650 70 L820 92 L820 102 L650 86 Z"/>
+      <path class="ray" d="M74 77 L820 92"/>
+      <rect class="sh" x="820" y="92" width="6" height="30"/>
+      <text class="lbl" x="700" y="62">touching</text>
+      <text x="836" y="112" text-anchor="start" style="display:none"></text>
+      <!-- hovering finger -->
+      <path class="finger" d="M630 172 L790 194 L790 204 L630 188 Z"/>
+      <path class="ray" d="M74 77 L790 194 L820 199"/>
+      <rect class="sh" x="820" y="199" width="6" height="32"/>
+      <path d="M790 199 L820 199" stroke="var(--fg)" stroke-width="1"/>
+      <text class="lbl" x="690" y="164">hovering 30 mm</text>
+      <path class="cam" d="M62 236 L790 199"/><path class="cam" d="M62 236 L820 205"/>
+      <text x="420" y="268" text-anchor="middle">camera sees the shadow beside the fingertip only when there is air between them</text>
+    </svg></div>
+    <figcaption>Side view, not to scale. The projector and the phone look at the wall from different places. At contact the fingertip and its shadow meet. In the air, the shadow lands lower on the wall (yellow ray) and a strip of lit wall opens between finger and shadow. The gap grows with height.</figcaption>
+  </figure>
+</section>
+
+<section>
+  <h2>Pipeline</h2>
+  <div class="flow">
+    <div class="step"><b>Dual camera</b><span>Main + ultra-wide, synced, about 24 fps over USB; MediaPipe on both</span><code>touch3d.Pair</code></div>
+    <div class="step"><b>Wall mapping</b><span>15 projected ArUco markers → camera-to-projector homography</span><code>app.markers_step</code></div>
+    <div class="step"><b>Light reference</b><span>Camera image of a full-white projection, so the app knows how bright each spot of wall should be</span><code>app.white_step</code></div>
+    <div class="step"><b>Shadow features</b><span>Pixels much darker than expected, beside the finger: attached or separated, how much, where</span><code>shadow.features</code></div>
+    <div class="step"><b>Contact model</b><span>Learned from your own touch and hover samples; outputs a probability</span><code>contact.ContactModel</code></div>
+    <div class="step"><b>Touch states</b><span>Confirm, hysteresis, cancel on tracking loss → clean events</span><code>state.TouchStateMachine</code></div>
+  </div>
+  <ul class="plain">
+    <li><b>Projected content isn't mistaken for shadow.</b> The app remembers what it projected about 60 ms ago, warps it into the camera view, and expects dark buttons to be dark. Only light that is missing counts as shadow.</li>
+    <li><b>Camera exposure changes are absorbed.</b> The brightness gain is re-measured every frame from wall pixels around the hand. Tested: a 40% exposure drop changes the features by less than 0.1.</li>
+    <li><b>Missing data is never a touch.</b> If no shadow is visible the rule gives 0.5 (uncertain), below the touch threshold. Losing the hand ends any touch after 150 ms, so a touch can't stick like it did in the side-camera test (41 s).</li>
+  </ul>
+</section>
+
+<section>
+  <h2>Contact features</h2>
+  <div class="scroll"><table>
+    <thead><tr><th>Feature</th><th>Meaning</th><th>Touching</th><th>Hovering</th></tr></thead>
+    <tbody>
+      <tr><td><code>sep_n</code></td><td>Lit wall between finger and its shadow</td><td>about 0, attached</td><td>grows with height</td></tr>
+      <tr><td><code>along_n</code></td><td>Shadow tip vs fingertip, along the finger</td><td>behind the tip (hidden under the finger)</td><td>level with or past the tip</td></tr>
+      <tr><td><code>area_n</code></td><td>Shadow visible near the tip</td><td>small</td><td>larger</td></tr>
+      <tr><td><code>gap_n</code>, <code>near_n</code>, <code>dx_n</code>, <code>dy_n</code></td><td>Distance and direction from tip to shadow</td><td>short</td><td>longer, in the projector's direction</td></tr>
+      <tr><td><code>parallax_v</code>, <code>parallax_y</code></td><td>Stereo shift of the fingertip between the two lenses (supporting)</td><td colspan="2">weak at 1 cm; the model learns how much to trust it</td></tr>
+    </tbody></table></div>
+  <p class="note">All lengths are divided by the finger's own tip-to-knuckle length, so the features don't change when the hand is nearer to or further from the phone. A logistic model combines them. Its threshold is set where hover false alarms stay at 2% or less on the training data, so it prefers missing a touch to inventing one.</p>
+</section>
+
+<section>
+  <h2>Touch states</h2>
+<pre class="states">IDLE ──hand on wall──▶ HOVER ──p ≥ threshold──▶ CANDIDATE ──held 100 ms──▶ TOUCH_DOWN
+                          ▲                         │ drops                      │ moves > 1.5% → DRAG
+                          └────────────────────────-┘                            ▼
+                     TOUCH_UP (+ CLICK if short and still) ◀──p < 0.6·threshold for 120 ms──┘
+     hand lost ≥ 150 ms while down ──▶ CANCEL ──▶ IDLE                  (never a stuck touch)</pre>
+  <p class="note">Every event is logged in the format from the brief: <code>{"event": "TOUCH_DOWN", "pointer_id": 1, "x": 0.42, "y": 0.67, "confidence": 0.96, "timestamp": …}</code>, with x and y as 0–1 of the projected image. Live mode turns them into Mac mouse clicks and drags, and a sideways flick into next or previous slide.</p>
+</section>
+
+<section>
+  <h2>Verified so far</h2>
+  <div class="scroll"><table>
+    <thead><tr><th>Check</th><th>How</th><th class="n">Result</th></tr></thead>
+    <tbody>
+      <tr><td>Shadow features follow hover height</td><td>Synthetic projector scene: lit wall, finger, angled shadow, 0–60 px lift</td><td class="n good">pass</td></tr>
+      <tr><td>Exposure change ignored</td><td>Same scene at 60% exposure</td><td class="n good">pass</td></tr>
+      <tr><td>Dark projected UI not counted as shadow</td><td>Dark box projected next to the finger</td><td class="n good">pass</td></tr>
+      <tr><td>Classifier finds the useful signal, ignores noise</td><td>Synthetic samples with a random stereo feature</td><td class="n good">pass</td></tr>
+      <tr><td>No touch from a one-frame spike; cancel on tracking loss</td><td>State machine sequence</td><td class="n good">pass</td></tr>
+      <tr><td>Drag is not a click</td><td>State machine sequence</td><td class="n good">pass</td></tr>
+      <tr><td>End-to-end dry run, Experiment A</td><td>Whole app on synthetic frames</td><td class="n">score 1.0; H10 4%, H20–50 0% called touch</td></tr>
+      <tr><td>End-to-end dry run, Experiment B</td><td>25 touches + 6 hover traps</td><td class="n">25/25 found · 0 false · 2.8 mm median</td></tr>
+    </tbody></table></div>
+  <p class="note">The synthetic results show the code is wired correctly. They are not performance figures. Real shadows are softer, fingers vary, and auto-exposure misbehaves; only the projector session can say whether the cue works.</p>
+</section>
+
+<section>
+  <h2>Projector test plan · 4 Nov</h2>
+  <ol class="steps">
+    <li><b>Setup:</b> projector as an extended display, lights dimmed, phone on a mount low and to one side about 1–1.5 m from the wall. <b>Not beside the projector lens</b>, or the shadow hides behind the finger. Measure the projected width for <code>--wall-cm</code>.</li>
+    <li><b>Calibrate:</b> 15 markers, then a white flash with hands away from the wall. Takes about 3 s.</li>
+    <li><b>Experiment A, touch vs hover</b> (the deciding one): 6 positions × touch, 10, 20, 30, 50 mm, 2 s each. Three rounds with different finger angles, about 300 labelled frames per condition.</li>
+    <li><b>Experiment B, accuracy:</b> 5 × 5 grid + 6 hover traps. Reports detection, false touches, error in mm (median, p95, max), latency.</li>
+    <li><b>Experiment C, real use:</b> buttons, drawing, dragging, slider, then Keynote in live mode.</li>
+    <li>Optional: repeat A and B with room lights on.</li>
+  </ol>
+  <div class="scroll"><table>
+    <thead><tr><th>Target from the brief</th><th class="n">Goal</th><th class="n">Measured</th></tr></thead>
+    <tbody>
+      <tr><td>Touch precision</td><td class="n">≥ 98%</td><td class="n pending">4 Nov</td></tr>
+      <tr><td>Touch recall</td><td class="n">≥ 95%</td><td class="n pending">4 Nov</td></tr>
+      <tr><td>Position error, median</td><td class="n">≤ 10 mm</td><td class="n pending">4 Nov</td></tr>
+      <tr><td>Interaction latency</td><td class="n">≤ 150 ms</td><td class="n pending">4 Nov</td></tr>
+      <tr><td>False activations</td><td class="n">≤ 1 per 10 min</td><td class="n pending">4 Nov</td></tr>
+      <tr><td>Tracking frame rate</td><td class="n">≥ 24 fps</td><td class="n">24 fps (USB, earlier sessions)</td></tr>
+    </tbody></table></div>
+  <p class="note">Decision rule: if the shadow features separate touch from 10–20 mm hover across positions, build the full interface on top. If they don't, change the projector-camera geometry (wider angle between them) before writing more application code.</p>
+</section>
+
+<section>
+  <h2>Design decisions</h2>
+  <div class="scroll"><table>
+    <thead><tr><th>Brief suggested</th><th>V1 does</th><th>Why</th></tr></thead>
+    <tbody>
+      <tr><td>StereoSGBM disparity map</td><td>Fingertip parallax as a learned feature</td><td>A 1 cm baseline gives about 1.4 px per 3 cm, and the two lenses differ in field of view. A dense depth map would mostly be noise. The model's weight on the stereo feature shows whether it helps.</td></tr>
+      <tr><td>Checkerboard lens calibration</td><td>Homography from 15 projected markers</td><td>The wall is flat, so a plane mapping is exact enough (1.5 mm fit before) and needs no printed board.</td></tr>
+      <tr><td>Fixed thresholds (0.90 confidence)</td><td>Threshold learned per setup at ≤ 2% false alarms</td><td>Probabilities depend on the room, wall and projector. A fixed 0.80 missed every touch in the dry run.</td></tr>
+      <tr><td>FastAPI + WebSocket to a browser</td><td>JSON-lines events + Mac mouse and keys</td><td>The same event format, so a browser canvas can subscribe later without touching the engine.</td></tr>
+    </tbody></table></div>
+</section>
+
+<section>
+  <h2>Risks</h2>
+  <ul class="plain">
+    <li><b>Shadow hidden behind the finger</b> when the phone sits near the projector lens. The setup screen says so. The diagnostics window shows the shadow live, so the placement can be fixed before testing.</li>
+    <li><b>Over-exposed wall</b> leaves no room to see shadows. The app warns if the white reference is close to clipping.</li>
+    <li><b>Low-angle hand tracking:</b> 51% at the top of a monitor in the last study. On a big wall the phone should sit further back.</li>
+    <li><b>Single finger only</b> in V1. Multi-touch needs a pointer per hand and per-finger shadows.</li>
+  </ul>
+  <p class="note">Code: <code>surfacetouch/</code>, <code>run_surfacetouch.py</code>, <code>tests/test_surfacetouch.py</code>; guide with checklist in <code>docs/SURFACETOUCH.md</code>. Data from each session: <code>logs/surface_&lt;time&gt;_*</code> (samples CSV, expA / expB JSON, events JSONL).</p>
+</section>
+</div>
