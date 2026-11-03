@@ -190,7 +190,10 @@ public class StereoStream {
     static void serve(CameraManager cm, OutputStream rawOut) throws Exception {
         List<String> phys = new ArrayList<>(cm.getCameraCharacteristics(logicalId).getPhysicalCameraIds());
         Collections.sort(phys);
-        if (phys.size() < 2) throw new IllegalStateException("camera " + logicalId + " is not a multi-camera");
+        // Not a multi-camera (e.g. the front camera): stream that one camera alone as cam 0.
+        final boolean single = phys.size() < 2;
+        if (single) { phys.clear(); phys.add(logicalId); }
+        final int n = single ? 1 : 2;
 
         DataOutputStream out = new DataOutputStream(new BufferedOutputStream(rawOut, 1 << 17));
         byte[] hj = header(cm, phys).toString().getBytes(StandardCharsets.UTF_8);
@@ -210,7 +213,7 @@ public class StereoStream {
         Handler camHandler = new Handler(camThread.getLooper());
         HandlerThread[] encThreads = new HandlerThread[2];
         ImageReader[] readers = new ImageReader[2];
-        for (int k = 0; k < 2; k++) {
+        for (int k = 0; k < n; k++) {
             final int cam = k;
             encThreads[k] = new HandlerThread("enc" + k);
             encThreads[k].start();
@@ -248,14 +251,16 @@ public class StereoStream {
         CameraCaptureSession session = null;
         try {
             if (dev[0] == null) throw new IllegalStateException("could not open camera: " + camErr[0]);
-            OutputConfiguration o0 = new OutputConfiguration(readers[0].getSurface());
-            o0.setPhysicalCameraId(phys.get(0));
-            OutputConfiguration o1 = new OutputConfiguration(readers[1].getSurface());
-            o1.setPhysicalCameraId(phys.get(1));
+            List<OutputConfiguration> outs = new ArrayList<>();
+            for (int k = 0; k < n; k++) {
+                OutputConfiguration oc = new OutputConfiguration(readers[k].getSurface());
+                if (!single) oc.setPhysicalCameraId(phys.get(k));
+                outs.add(oc);
+            }
             CountDownLatch configured = new CountDownLatch(1);
             final CameraCaptureSession[] sess = new CameraCaptureSession[1];
             dev[0].createCaptureSession(new SessionConfiguration(SessionConfiguration.SESSION_REGULAR,
-                    Arrays.asList(o0, o1), camHandler::post, new CameraCaptureSession.StateCallback() {
+                    outs, camHandler::post, new CameraCaptureSession.StateCallback() {
                         @Override public void onConfigured(CameraCaptureSession s) { sess[0] = s; configured.countDown(); }
                         @Override public void onConfigureFailed(CameraCaptureSession s) { camErr[0] = "session configure failed"; configured.countDown(); }
                     }));
@@ -264,8 +269,7 @@ public class StereoStream {
             if (session == null) throw new IllegalStateException(camErr[0]);
 
             CaptureRequest.Builder rq = dev[0].createCaptureRequest(CameraDevice.TEMPLATE_RECORD);
-            rq.addTarget(readers[0].getSurface());
-            rq.addTarget(readers[1].getSurface());
+            for (int k = 0; k < n; k++) rq.addTarget(readers[k].getSurface());
             if (focusDiopters > 0) {
                 // A fixed focus keeps the main lens from "breathing" (zooming slightly while
                 // autofocus hunts), which would shift pixels and corrupt the disparity.

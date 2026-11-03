@@ -48,6 +48,23 @@ finger from the camera that has been right most often about it (`logs/trust.json
 game from the labelled rounds). The two phone lenses count as one view (they are 1 cm apart). First
 measured gain (3 Nov, cross-validated): Mac alone 79% → 3 cameras 89% of frames; thumbs-up 0% → 78%.
 
+## Research tools (3 Nov 2026)
+| Script | What it does |
+|---|---|
+| `speedtest.py` | **Sign Cue Test**: cues 6 signs at random times, scores Mac camera / phone 2 cameras / all 3 against known ground truth (recognised %, latency, added delay, settled accuracy, per-sign, confusion). Saves every frame (finger probabilities, 21 landmarks, size, brightness) for research |
+| `research.py` | Re-scores all cue sessions offline with several fusion methods (leave-one-session-out trust, average, vote) and bootstrap 95% CIs → `logs/research/results.json`. `--phone front` for front-camera sessions |
+| `airbuttons.py` | Air Buttons: point at on-screen buttons, push toward the screen to press (Mac hand-scale depth + optional phone stereo), with a timed check |
+| `linktest.py` | Wi-Fi vs USB stream test: fps, gaps, stalls, jitter |
+| `report/sign_study.html` | The study write-up (3 sessions, 90 cues) |
+
+First results (back phone pair, frontal placement): Mac alone 94% recognised / 85% settled; phone pair 89% / 78%
+(+80 ms); all 3 with fairly learned trust = Mac (no gain, because both views face the hand head-on). THUMBS UP is the
+weak sign (read as FIST). USB: longest stall 68 ms vs 355 ms on Wi-Fi.
+
+**USB mode**: the Mac app's *Connection* switch can use a cable instead of Wi-Fi (`adb forward tcp:27183`).
+**Front camera**: the phone app's *Camera* button switches between the back pair (main + ultra-wide) and the front
+selfie camera, streamed alone.
+
 ## Apps
 | Script | What it does |
 |---|---|

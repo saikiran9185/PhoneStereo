@@ -12,13 +12,30 @@ struct Phone: Identifiable, Hashable {
 }
 
 enum Mode: String, CaseIterable, Identifiable {
-    case depth = "Live depth"
+    case air = "Air Buttons"
     case signs3 = "Sign Check · 3 cameras"
+    case depth = "Live depth"
     case signsPhone = "Sign Check · phone only"
+    case speed = "Sign Cue Test (research)"
+    case link = "Link test"
     var id: String { rawValue }
-    var script: String { self == .depth ? "viewer.py" : "signs.py" }
+    var script: String {
+        switch self {
+        case .depth: "viewer.py"
+        case .air: "airbuttons.py"
+        case .link: "linktest.py"
+        case .speed: "speedtest.py"
+        default: "signs.py"
+        }
+    }
     var extra: [String] { self == .signsPhone ? ["--no-mac"] : [] }
-    var needsMacCamera: Bool { self == .signs3 }
+    var needsMacCamera: Bool { self == .signs3 || self == .air || self == .speed }
+}
+
+enum Link: String, CaseIterable, Identifiable {
+    case wifi = "Wi-Fi"
+    case usb = "USB cable"
+    var id: String { rawValue }
 }
 
 @MainActor
@@ -33,6 +50,8 @@ final class Model: ObservableObject {
     @Published var running: Mode?
     @Published var log: [String] = []
     @Published var camera = AVCaptureDevice.authorizationStatus(for: .video)
+    @Published var link: Link = .wifi
+    @Published var usbSerial: String?
 
     let projectDir: String
     private var browser: NWBrowser?
@@ -43,6 +62,66 @@ final class Model: ObservableObject {
         projectDir = Bundle.main.object(forInfoDictionaryKey: "PSProjectDir") as? String
             ?? NSHomeDirectory() + "/Projects/PhoneStereo"
         browse()
+        watchUSB()
+    }
+
+    // MARK: USB (adb from the Android SDK): the phone app's stream port is forwarded to 127.0.0.1
+    private var adb: String { NSHomeDirectory() + "/Library/Android/sdk/platform-tools/adb" }
+
+    private func runAdb(_ args: [String]) -> String {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: adb)
+        p.arguments = args
+        let out = Pipe()
+        p.standardOutput = out
+        p.standardError = out
+        do { try p.run() } catch { return "" }
+        p.waitUntilExit()
+        return String(data: out.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+    }
+
+    private func watchUSB() {
+        Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { _ in
+            DispatchQueue.global().async {
+                let out = self.runAdbSync(["devices"])
+                // USB devices are listed by serial; Wi-Fi ones contain ":" or "._adb-tls".
+                let serial = out.split(separator: "\n").compactMap { line -> String? in
+                    let f = line.split(separator: "\t")
+                    guard f.count == 2, f[1] == "device", !f[0].contains(":"), !f[0].contains("._adb") else { return nil }
+                    return String(f[0])
+                }.first
+                Task { @MainActor in
+                    let was = self.usbSerial
+                    self.usbSerial = serial
+                    if serial != nil && was == nil && self.phones.isEmpty { self.link = .usb; self.pair() }
+                    if serial == nil && self.link == .usb && self.running == nil {
+                        self.status = "No phone on USB. Plug it in (USB debugging on) or switch to Wi-Fi."
+                        self.statusOK = false
+                        self.ip = nil
+                    }
+                }
+            }
+        }.fire()
+    }
+
+    nonisolated func runAdbSync(_ args: [String]) -> String {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: NSHomeDirectory() + "/Library/Android/sdk/platform-tools/adb")
+        p.arguments = args
+        let out = Pipe()
+        p.standardOutput = out
+        p.standardError = out
+        do { try p.run() } catch { return "" }
+        p.waitUntilExit()
+        return String(data: out.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+    }
+
+    func setLink(_ l: Link) {
+        link = l
+        ip = nil
+        statusOK = false
+        if code.isEmpty, let any = (loadConf()["codes"] as? [String: String])?.values.first { code = any }
+        pair()
     }
 
     // MARK: saved codes (same file as connect.py)
@@ -92,6 +171,7 @@ final class Model: ObservableObject {
     private func updatePhones(_ found: [Phone]) {
         phones = found
         if found.isEmpty {
+            if link == .usb { return }
             if running == nil { status = "Looking for the phone… open PhoneStereo on the phone and tap Start stereo." }
             statusOK = false
             ip = nil
@@ -102,6 +182,7 @@ final class Model: ObservableObject {
             code = savedCode(found[0].name) ?? ""
             ip = nil
             statusOK = false
+            if link == .usb { return }
             if !code.isEmpty { pair() } else { status = "Found \(found[0].name). Type the code shown on the phone." }
         }
     }
@@ -116,14 +197,34 @@ final class Model: ObservableObject {
 
     // MARK: pairing check: connect, send "PS <code>", expect the stream header magic
     func pair() {
-        guard let name = selected, let phone = phones.first(where: { $0.name == name }) else { return }
+        let endpoint: NWEndpoint
+        let name: String
+        if link == .usb {
+            guard let serial = usbSerial else {
+                status = "No phone on USB. Plug it in (USB debugging on) or switch to Wi-Fi."
+                return
+            }
+            let fwd = runAdb(["-s", serial, "forward", "tcp:27183", "tcp:27183"])
+            if !fwd.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("27183") && !fwd.isEmpty {
+                status = "adb forward failed: \(fwd)"
+                return
+            }
+            endpoint = .hostPort(host: "127.0.0.1", port: 27183)
+            name = selected ?? "usb:\(serial)"
+        } else {
+            guard let sel = selected, let phone = phones.first(where: { $0.name == sel }) else { return }
+            endpoint = phone.endpoint
+            name = sel
+        }
+        if code.isEmpty, let saved = savedCode(name) { code = saved }
         let c = code.trimmingCharacters(in: .whitespaces)
         guard c.count == 4, Int(c) != nil else { status = "The code is 4 digits."; return }
         busy = true
         status = "Pairing with \(name)…"
         let params = NWParameters.tcp
         if let ipOpt = params.defaultProtocolStack.internetProtocol as? NWProtocolIP.Options { ipOpt.version = .v4 }
-        let conn = NWConnection(to: phone.endpoint, using: params)
+        let conn = NWConnection(to: endpoint, using: params)
+        let linkName = link == .usb ? "USB" : "Wi-Fi"
         var finished = false
         let finish: @Sendable (String?, String?) -> Void = { err, addr in
             Task { @MainActor in
@@ -137,7 +238,7 @@ final class Model: ObservableObject {
                 } else if let addr {
                     self.ip = addr
                     self.statusOK = true
-                    self.status = "Paired with \(name) · \(addr)"
+                    self.status = "Paired with \(name) over \(linkName) · \(addr)"
                     self.saveCode(name, c, ip: addr)
                 }
             }
@@ -149,6 +250,7 @@ final class Model: ObservableObject {
                 if case let .hostPort(host, _) = conn.currentPath?.remoteEndpoint {
                     addr = "\(host)".components(separatedBy: "%")[0]
                 }
+                if addr == "::1" || addr == "localhost" { addr = "127.0.0.1" }
                 conn.send(content: "PS \(c)\n".data(using: .utf8), completion: .contentProcessed { _ in })
                 conn.receive(minimumIncompleteLength: 8, maximumLength: 8) { data, _, _, _ in
                     guard let d = data, d.count >= 4 else { finish("No answer from the phone app.", nil); return }
@@ -196,6 +298,11 @@ final class Model: ObservableObject {
 
     private func start(_ mode: Mode, ip: String) {
         var args = [mode.script, "--host", ip, "--token", code.trimmingCharacters(in: .whitespaces)] + mode.extra
+        if link == .usb && mode != .link { _ = runAdb(["-s", usbSerial ?? "", "forward", "tcp:27183", "tcp:27183"]) }
+        if mode.needsMacCamera && camera != .authorized && mode == .air {
+            append("Air Buttons needs the Mac camera. Allow it in Settings, then run again.")
+            return
+        }
         if mode.needsMacCamera && camera != .authorized {
             args.append("--no-mac")
             append("Mac camera not allowed: running with the phone only. Allow it in Settings, then run again.")
@@ -266,7 +373,24 @@ struct ContentView: View {
 
             GroupBox("Phone") {
                 VStack(alignment: .leading, spacing: 10) {
-                    if m.phones.isEmpty {
+                    Picker("Connection", selection: Binding(get: { m.link }, set: { m.setLink($0) })) {
+                        ForEach(Link.allCases) { Text($0.rawValue).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
+                    Text(m.link == .usb
+                         ? (m.usbSerial.map { "USB: phone \($0) connected · steadier (no Wi-Fi stalls)" } ?? "USB: no phone found. Plug in the cable, allow USB debugging.")
+                         : "Wi-Fi: phone and Mac on the same network")
+                        .font(.caption).foregroundStyle(.secondary)
+                    if m.link == .usb {
+                        HStack {
+                            Text("Code")
+                            TextField("4 digits", text: $m.code)
+                                .textFieldStyle(.roundedBorder).frame(width: 90)
+                                .font(.system(.body, design: .monospaced))
+                                .onSubmit { m.pair() }
+                            Button(m.statusOK ? "Re-pair" : "Pair") { m.pair() }.disabled(m.busy || m.usbSerial == nil)
+                        }
+                    } else if m.phones.isEmpty {
                         HStack(spacing: 8) {
                             ProgressView().controlSize(.small)
                             Text("Open PhoneStereo on the phone and tap Start stereo.").foregroundStyle(.secondary)
@@ -307,13 +431,13 @@ struct ContentView: View {
                 .padding(4)
             }
 
-            HStack(spacing: 10) {
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
                 ForEach(Mode.allCases) { mode in
                     Button { m.launch(mode) } label: {
                         Text(mode.rawValue).frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.borderedProminent)
-                    .tint(mode == .depth ? .cyan : .orange)
+                    .tint(mode == .air ? .green : mode == .speed ? .pink : mode == .depth ? .cyan : mode == .link ? .gray : .orange)
                     .controlSize(.large)
                     .disabled(m.ip == nil || m.running != nil)
                 }

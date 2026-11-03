@@ -54,7 +54,7 @@ public class MainActivity extends Activity {
 
     final Handler ui = new Handler(Looper.getMainLooper());
     TextView shizukuView, codeView, ipView, stateView, detailView, logView;
-    Button startBtn, shizukuBtn;
+    Button startBtn, shizukuBtn, camBtn;
     NsdManager nsd;
     NsdManager.RegistrationListener nsdListener;
 
@@ -150,6 +150,14 @@ public class MainActivity extends Activity {
         col.addView(stateView);
         detailView = text(14, Color.rgb(200, 200, 220), false);
         col.addView(detailView);
+
+        camBtn = button(camLabel(), Color.rgb(200, 190, 255));
+        camBtn.setOnClickListener(v -> {
+            if (proc != null) { log("stop the stream before switching camera"); return; }
+            getSharedPreferences("ps", MODE_PRIVATE).edit().putString("cam", "1".equals(camId()) ? "4" : "1").apply();
+            camBtn.setText(camLabel());
+        });
+        col.addView(camBtn);
 
         startBtn = button("Start stereo", Color.rgb(126, 224, 210));
         startBtn.setOnClickListener(v -> { if (proc == null) start(); else stop(); });
@@ -262,6 +270,11 @@ public class MainActivity extends Activity {
         return (Process) m.invoke(null, new String[]{"sh", "-c", cmd}, null, null);
     }
 
+    // "4" = back logical camera (main + ultra-wide together), "1" = front (selfie) camera alone.
+    String camId() { return getSharedPreferences("ps", MODE_PRIVATE).getString("cam", "4"); }
+
+    String camLabel() { return "1".equals(camId()) ? "Camera: FRONT (selfie)  · tap to switch" : "Camera: BACK pair (main + wide)  · tap to switch"; }
+
     void start() {
         try {
             String apk = getApplicationInfo().sourceDir;
@@ -269,7 +282,7 @@ public class MainActivity extends Activity {
             // would also match (and kill) this very shell, whose command line names the class.
             shell("pkill -f '[p]honestereo.StereoStream'").waitFor();
             String cmd = "CLASSPATH=" + apk
-                    + " app_process / dev.saikiran.phonestereo.StereoStream --camera 4"
+                    + " app_process / dev.saikiran.phonestereo.StereoStream --camera " + camId()
                     + " --tcp " + PORT + " --token " + code()
                     + " --size 960x720 --quality 70 --focus 0 2>&1 | tee /data/local/tmp/phonestereo.log";
             proc = shell(cmd);

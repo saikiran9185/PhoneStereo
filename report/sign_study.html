@@ -1,0 +1,305 @@
+<title>Three-Camera Sign Study</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,750&family=Source+Sans+3:wght@400;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a single lab-report column (~70ch) with wide figure/table blocks that scroll on their own; findings first, method last. */
+:root {
+  --bg: #f6f7f9; --panel: #ffffff; --fg: #1b2230; --muted: #5d6676; --rule: #dde1e8;
+  --mac: #2f6fd6; --phone: #c7841a; --all3: #1f9a6a; --vote: #8a5cc4; --bad: #c24a3a;
+  --display: "Bricolage Grotesque", "Avenir Next", system-ui, sans-serif;
+  --body: "Source Sans 3", "Helvetica Neue", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #12161d; --panel: #1a2029; --fg: #e5e9f0; --muted: #9aa3b2; --rule: #2c3442;
+  --mac: #6ea2ff; --phone: #f0aa45; --all3: #48c992; --vote: #b28ef0; --bad: #f07a68; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #12161d; --panel: #1a2029; --fg: #e5e9f0; --muted: #9aa3b2; --rule: #2c3442;
+  --mac: #6ea2ff; --phone: #f0aa45; --all3: #48c992; --vote: #b28ef0; --bad: #f07a68; color-scheme: dark }
+body { background: var(--bg); color: var(--fg); font: 17px/1.6 var(--body); }
+.wrap { max-width: 980px; margin: 0 auto; padding-block: 40px 80px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: grid; gap: 44px; }
+.prose { max-width: 70ch; }
+h1, h2, h3 { font-family: var(--display); text-wrap: balance; line-height: 1.15; margin: 0; }
+h1 { font-size: clamp(2rem, 5vw, 3rem); font-weight: 750; letter-spacing: -0.02em; }
+h2 { font-size: 1.55rem; font-weight: 750; }
+h3 { font-size: 1.1rem; font-weight: 600; }
+section { display: grid; gap: 16px; min-width: 0; }
+p { margin: 0; }
+.eyebrow { font: 500 0.75rem var(--mono); text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+.lede { font-size: 1.15rem; color: var(--muted); max-width: 64ch; }
+.meta { font: 0.85rem var(--mono); color: var(--muted); display: flex; flex-wrap: wrap; gap: 6px 18px; }
+.key { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+.finding { background: var(--panel); border: 1px solid var(--rule); border-radius: 8px; padding: 16px 18px; display: grid; gap: 6px; }
+.finding b { font-family: var(--display); font-size: 1.05rem; }
+.finding p { color: var(--muted); font-size: 0.97rem; }
+.scroll { overflow-x: auto; min-width: 0; }
+table { border-collapse: collapse; width: 100%; font-size: 0.95rem; font-variant-numeric: tabular-nums; }
+th, td { padding: 8px 10px; border-bottom: 1px solid var(--rule); text-align: right; white-space: nowrap; }
+th:first-child, td:first-child { text-align: left; }
+th { font: 500 0.75rem var(--mono); text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+td.name { font-weight: 600; }
+.sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 8px; vertical-align: 0; }
+.hl td { background: color-mix(in srgb, var(--mac) 8%, transparent); }
+.neg { color: var(--bad); }
+.note { font-size: 0.9rem; color: var(--muted); max-width: 75ch; }
+figure { margin: 0; background: var(--panel); border: 1px solid var(--rule); border-radius: 8px; padding: 18px; display: grid; gap: 10px; min-width: 0; }
+figcaption { font-size: 0.92rem; color: var(--muted); }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 0.88rem; }
+svg text { fill: var(--muted); font: 12px var(--mono); }
+svg .val { fill: var(--fg); font-size: 11px; }
+svg .grid { stroke: var(--rule); }
+.f-mac { fill: var(--mac); } .f-phone { fill: var(--phone); } .f-all3 { fill: var(--all3); } .f-vote { fill: var(--vote); }
+.cols { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); }
+.setup { background: var(--panel); border: 1px solid var(--rule); border-radius: 8px; padding: 18px; display: grid; gap: 10px; align-content: start; border-top: 4px solid var(--c); }
+.setup h3 { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+.setup .score { font: 500 0.85rem var(--mono); color: var(--muted); }
+.setup ul { margin: 0; padding-left: 1.1em; display: grid; gap: 4px; font-size: 0.95rem; }
+.lab { font: 500 0.72rem var(--mono); text-transform: uppercase; letter-spacing: 0.08em; }
+.plus { color: var(--all3); } .minus { color: var(--bad); } .use { color: var(--mac); }
+ol.steps, ul.plain { margin: 0; padding-left: 1.2em; display: grid; gap: 6px; max-width: 75ch; }
+code { font: 0.9em var(--mono); }
+</style>
+
+<div class="wrap">
+<header style="display:grid;gap:14px">
+  <div class="eyebrow">PhoneStereo · Gesture-Based Interaction research · 3 Nov 2026</div>
+  <h1>Three-Camera Sign Study</h1>
+  <p class="lede">How accurately and how fast are six hand signs recognised by a single Mac camera, by the phone's two back cameras, and by all three cameras together? Tested on the same hand movements, against cues with known timing.</p>
+  <div class="meta"><span>3 sessions</span><span>90 cued signs</span><span>~8,000 frames per camera</span><span>1 participant</span><span>phone on USB</span><span>MediaPipe Hand Landmarker</span></div>
+</header>
+
+<section>
+  <h2>Findings</h2>
+  <div class="key">
+    <div class="finding"><b>The Mac camera alone was the best single setup</b><p>94% of cues recognised, 85% of settled frames correct and the fastest response. The phone's pair scored 89% and 78%.</p></div>
+    <div class="finding"><b>Three cameras matched the Mac but did not beat it</b><p>With fusion learned fairly (never from the session being scored), all three cameras scored the same as the Mac. The difference was −0.1 points, 95% CI −0.3 to 0.</p></div>
+    <div class="finding"><b>The thumb causes most errors</b><p>THUMBS UP is read as FIST: the Mac gets it right in 57% of frames and the phone in 9%. Every other sign is 86–98% correct on all setups.</p></div>
+    <div class="finding"><b>The phone adds about 80 ms</b><p>USB transfer plus a lower frame rate (24 vs 30 fps) delay the phone's answer. Wi-Fi works but stalls for up to 0.36 s.</p></div>
+  </div>
+  <p class="note">An earlier run (Sign Check game, same day, phone at a different angle) found the opposite: Mac 79% → three cameras 89%. Extra cameras only help when they see the hand from a <em>different</em> angle. In today's sessions the phone and the Mac both faced the hand head-on, so they made the same mistakes.</p>
+</section>
+
+<section>
+  <h2>The setups compared</h2>
+  <div class="scroll"><table id="t-main"></table></div>
+  <p class="note"><b>Recognised</b>: the right sign shown on 2 frames in a row within 2 s of the cue. <b>Latency</b>: from the cue to the right sign being ready on the Mac. It includes the person's own reaction (~0.6–0.8 s), which is the same for every setup. <b>+Delay</b>: latency minus the fastest of Mac / phone pair / all-3 on the same cue, so the reaction cancels out. <b>Settled</b>: share of frames showing the right sign from 1 s after the cue until the next cue. <b>vs Mac</b>: paired bootstrap over the 90 cues (2,000 resamples).</p>
+</section>
+
+<section>
+  <h2>Accuracy by sign</h2>
+  <figure>
+    <div class="legend" id="lg1"></div>
+    <div class="scroll"><svg id="c-sign" role="img" aria-label="Settled accuracy per sign for each setup"></svg></div>
+    <figcaption>Share of settled frames showing the cued sign. Each setup does well on every sign except THUMBS UP. The majority vote is best on FIST (96%) because two cameras outvote the Mac's thumb mistakes.</figcaption>
+  </figure>
+</section>
+
+<section>
+  <h2>Speed</h2>
+  <figure>
+    <div class="legend" id="lg2"></div>
+    <div class="scroll"><svg id="c-lat" role="img" aria-label="Latency median and 90th percentile by setup"></svg></div>
+    <figcaption>Cue to correct result, in ms. The bar is the median and the thin line runs to the 90th percentile. The setups are close because the person's reaction is most of the time. The differences that matter are the +delay column above: Mac 0 ms, phone +80 ms, all three 0 ms.</figcaption>
+  </figure>
+  <div class="scroll"><table id="t-cams"></table></div>
+  <p class="note">Processing is the time from a frame being ready on the Mac to the hand result (MediaPipe on the Mac, 640 px wide). Phone frames also spend time being captured, JPEG-encoded and sent over USB before this.</p>
+</section>
+
+<section>
+  <h2>Where the errors come from</h2>
+  <div class="scroll"><table id="t-conf"></table></div>
+  <ul class="plain">
+    <li><b>THUMBS UP → FIST.</b> Seen from the front, a raised thumb lies over the curled fingers, so the thumb's joint angles look bent. The phone (lower, also frontal) sees this even worse than the Mac.</li>
+    <li><b>PEACE → HORNS</b> about 8% of the time on all setups. The ring and pinky are half-curled in a relaxed peace sign, and the template is unsure.</li>
+    <li><b>FIST → THUMBS UP</b> on the Mac (11%): the opposite thumb error. The phone is better here (91% vs 86%).</li>
+    <li><b>Learned trust per finger</b> (share of settled frames where the finger was read right): thumb Mac 73%, phone 56%. Index to pinky: both 96–99%. The thumb is the one finger where the views differ, and here the Mac sees it better.</li>
+  </ul>
+</section>
+
+<section>
+  <h2>How the three cameras were combined</h2>
+  <div class="scroll"><table id="t-fusion"></table></div>
+  <p class="note">The live version (<code>all3_live</code>) used per-finger trust learned in the earlier game, where the phone was placed better and saw the thumb better. Here that trust was out of date: it took the phone's thumb and lost 6 points. Learning trust from the other sessions of the same placement (<code>all3_cv</code>) fixed it. Trust has to be re-learned whenever a camera moves.</p>
+</section>
+
+<section>
+  <h2>Connection: Wi-Fi vs USB</h2>
+  <div class="scroll"><table id="t-link"></table></div>
+  <p class="note">Same phone app, 960×720 JPEG pairs at quality 70. Wi-Fi is 5 GHz at 433 Mbps, signal −35 dBm. Both carry about 23 fps. USB is steadier: its worst gap is 5× shorter, which matters for push-to-press and fast signs.</p>
+</section>
+
+<section>
+  <h2>Depth for Air Buttons</h2>
+  <div class="scroll"><table id="t-air"></table></div>
+  <p class="note">Pushing toward the screen is measured by how much bigger the hand looks to the Mac camera, and optionally by the 1 cm stereo between the phone lenses. The stereo shift is only 2.5–3 px for a full push, too small to rely on: alone it gave 12 false presses in 4 hover tasks. Mac hand scale is the usable depth signal. Navigation still needs work: half of the pushes landed and hovering often pressed by accident.</p>
+</section>
+
+<section>
+  <h2>Benefits and drawbacks of each setup</h2>
+  <div class="cols">
+    <div class="setup" style="--c: var(--mac)">
+      <h3>Mac camera alone <span class="score">94% · 85%</span></h3>
+      <div class="lab plus">Benefits</div>
+      <ul><li>Most accurate and fastest in this study</li><li>Nothing to set up: no phone, cable, pairing or Shizuku</li><li>30 fps, about 22 ms processing</li><li>Lowest CPU and battery use</li></ul>
+      <div class="lab minus">Drawbacks</div>
+      <ul><li>One viewpoint: when the thumb or a finger is hidden, nothing recovers it</li><li>Depth only from hand size, which drifts with tilt and distance</li><li>Fixed in the laptop lid, so it can't look from the side</li></ul>
+      <div class="lab use">Best for</div>
+      <ul><li>Everyday gesture control, slide control, demos</li></ul>
+    </div>
+    <div class="setup" style="--c: var(--phone)">
+      <h3>Phone, 2 cameras <span class="score">89% · 78%</span></h3>
+      <div class="lab plus">Benefits</div>
+      <ul><li>Can be placed anywhere: above the desk, at the side, facing a tabletop</li><li>Two lenses at once give a small stereo depth near the lens</li><li>Better than the Mac at FIST and HORNS</li><li>Frees the laptop camera for video calls</li></ul>
+      <div class="lab minus">Drawbacks</div>
+      <ul><li>About 80 ms slower, 24 fps</li><li>Very poor on THUMBS UP (9%) from a low, frontal angle</li><li>The two lenses are 1 cm apart, so they mostly make the same mistakes</li><li>Needs the app, Shizuku, pairing, and the screen kept on</li></ul>
+      <div class="lab use">Best for</div>
+      <ul><li>Tabletop and touch work (StickyBeat, mat piano) and mounts away from the screen</li></ul>
+    </div>
+    <div class="setup" style="--c: var(--all3)">
+      <h3>All 3 cameras <span class="score">94% · 85%</span></h3>
+      <div class="lab plus">Benefits</div>
+      <ul><li>Never worse than the best camera, once trust is learned for the placement</li><li>Gained 10 points (79 → 89%) when the phone saw from a different angle</li><li>Keeps working if one view loses the hand</li><li>Records multi-view data for research</li></ul>
+      <div class="lab minus">Drawbacks</div>
+      <ul><li>No gain when the cameras share a viewpoint (this study)</li><li>Stale trust hurts (−6 points): it must be re-learned after moving a camera</li><li>Most setup and most CPU (3 trackers)</li><li>Waits for the phone's frames</li></ul>
+      <div class="lab use">Best for</div>
+      <ul><li>Hard signs and occlusion, with the phone placed at 45–90° to the Mac</li></ul>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Method</h2>
+  <ol class="steps">
+    <li>The screen cues one of six signs (FIST, OPEN PALM, PEACE, POINT, THUMBS UP, HORNS) every 2.2–3.2 s, in random blocks of six, 30 cues per session.</li>
+    <li>The Mac camera (1280×720) and the phone's main and ultra-wide lenses (960×720, logical camera 4, streamed over USB) are tracked separately with MediaPipe. Every frame's finger probabilities, landmarks, size and brightness are saved.</li>
+    <li>Each setup is rebuilt offline on a 20 ms grid from each camera's latest frame (≤150 ms old), with no smoothing, then scored against the cues (<code>research.py</code>).</li>
+    <li>Signs are classified from the joint angles of each finger, matched to a template per sign.</li>
+  </ol>
+  <h3>Limits</h3>
+  <ul class="plain">
+    <li>One participant, one room, daylight, one phone placement (low, frontal). The results show this placement, not every placement.</li>
+    <li>Three sessions: the spread between sessions (±4.5 points on settled accuracy) is as large as most differences between setups.</li>
+    <li>Latency includes human reaction, so only the +delay differences compare the systems.</li>
+  </ul>
+  <h3>Next experiments</h3>
+  <ul class="plain">
+    <li>Same test with the phone at 45° and 90° to the side, to measure how much a different viewpoint adds.</li>
+    <li>More people (5–8) for between-person variation.</li>
+    <li>A better thumb feature (thumb tip vs index base direction) before adding more cameras.</li>
+    <li>Low-light session, to test whether the phone's sensor helps where the Mac camera gets noisy.</li>
+  </ul>
+  <p class="note">Data: <code>logs/speed_20261103_170415</code>, <code>_170605</code>, <code>_170741</code> (frames, cues, summary), <code>logs/research/results.json</code>, <code>logs/linktest.jsonl</code>, <code>logs/air_20261103_164341</code>, <code>_165440</code>. Code: <code>speedtest.py</code>, <code>research.py</code> in PhoneStereo.</p>
+</section>
+</div>
+
+<script>
+const SET = {
+  mac:{label:"Mac camera", cls:"mac"}, phone2:{label:"Phone 2 cams", cls:"phone"},
+  all3_cv:{label:"All 3 (trust learned)", cls:"all3"}, vote3:{label:"All 3 (vote)", cls:"vote"}
+};
+const POOLED = {
+  mac:{rec:94.4,lat:875,p90:1278,add:0,set:85.4,d:0,ci:[0,0]},
+  phone_main:{rec:88.9,lat:965,p90:1317,add:80,set:78.6,d:-6.8,ci:[-13.4,-0.7]},
+  phone2:{rec:88.9,lat:973,p90:1322,add:80,set:77.8,d:-7.6,ci:[-14.3,-1.4]},
+  all3_avg:{rec:86.7,lat:939,p90:1271,add:60,set:81.6,d:-3.8,ci:[-8.9,1.0]},
+  all3_live:{rec:91.1,lat:867,p90:1260,add:0,set:79.3,d:-6.1,ci:[-12.4,0.1]},
+  all3_cv:{rec:94.4,lat:886,p90:1282,add:0,set:85.3,d:-0.1,ci:[-0.3,0.0]},
+  vote3:{rec:91.1,lat:928,p90:1315,add:40,set:79.7,d:-5.8,ci:[-12.1,-0.1]}
+};
+const SD = {mac:[2.0,4.5], phone2:[1.9,6.0], all3_cv:[2.0,4.6], vote3:[1.9,5.2]};
+const SIGNS = ["FIST","OPEN PALM","PEACE","POINT","THUMBS UP","HORNS"];
+const PERSIGN = {
+  mac:{FIST:85.6,"THUMBS UP":57.5,HORNS:95.9,"OPEN PALM":93.6,POINT:93.4,PEACE:87.9},
+  phone2:{FIST:90.9,"THUMBS UP":9.3,HORNS:97.9,"OPEN PALM":92.3,POINT:92.4,PEACE:85.5},
+  all3_cv:{FIST:85.2,"THUMBS UP":57.5,HORNS:95.9,"OPEN PALM":93.6,POINT:93.5,PEACE:87.7},
+  vote3:{FIST:95.6,"THUMBS UP":12.2,HORNS:98.3,"OPEN PALM":93.5,POINT:93.3,PEACE:86.1}
+};
+const sw = c => `<span class="sw" style="background:var(--${c})"></span>`;
+const fmt = (v, s="") => v === null ? "–" : v + s;
+
+document.getElementById("t-main").innerHTML =
+  `<thead><tr><th>Setup</th><th>Recognised</th><th>Latency (median)</th><th>Latency p90</th><th>+Delay</th><th>Settled</th><th>± sd (sessions)</th><th>vs Mac, 95% CI</th></tr></thead><tbody>` +
+  ["mac","phone2","all3_cv"].map(k => { const p = POOLED[k], s = SD[k];
+    return `<tr${k==="mac"?' class="hl"':""}><td class="name">${sw(SET[k].cls)}${SET[k].label}</td><td>${p.rec}%</td><td>${p.lat} ms</td><td>${p.p90} ms</td><td>+${p.add} ms</td><td>${p.set}%</td><td>±${s[1]}</td><td class="${p.ci[1]<0?"neg":""}">${k==="mac"?"baseline":(p.d>0?"+":"")+p.d+" ["+p.ci[0]+", "+p.ci[1]+"]"}</td></tr>`; }).join("") + "</tbody>";
+
+document.getElementById("t-fusion").innerHTML =
+  `<thead><tr><th>Method</th><th>How</th><th>Recognised</th><th>Settled</th><th>vs Mac, 95% CI</th></tr></thead><tbody>` +
+  [["mac","Mac only"],["phone_main","phone main lens only"],["phone2","phone lenses averaged"],["all3_avg","all views averaged"],
+   ["all3_live","per finger, trust from earlier game (stale)"],["all3_cv","per finger, trust from the other sessions"],["vote3","majority of 3 cameras' signs"]]
+  .map(([k,h]) => { const p = POOLED[k];
+    return `<tr${k==="all3_cv"?' class="hl"':""}><td class="name"><code>${k}</code></td><td style="text-align:left">${h}</td><td>${p.rec}%</td><td>${p.set}%</td><td class="${p.ci[1]<0?"neg":""}">${k==="mac"?"baseline":(p.d>0?"+":"")+p.d+" ["+p.ci[0]+", "+p.ci[1]+"]"}</td></tr>`; }).join("") + "</tbody>";
+
+document.getElementById("t-cams").innerHTML =
+  `<thead><tr><th>Camera</th><th>fps (3 sessions)</th><th>Processing</th><th>Hand found</th><th>Brightness</th></tr></thead><tbody>
+  <tr><td class="name">Mac (1280×720)</td><td>29.8 / 22.0 / 25.8</td><td>22–31 ms</td><td>100%</td><td>121–128</td></tr>
+  <tr><td class="name">Phone main</td><td>20.3 / 23.6 / 23.6</td><td>34–39 ms</td><td>100%</td><td>158–168</td></tr>
+  <tr><td class="name">Phone ultra-wide</td><td>20.5 / 23.9 / 23.8</td><td>41–48 ms</td><td>100%</td><td>126–132</td></tr></tbody>`;
+
+const CONF = [
+  ["THUMBS UP","Mac", {"THUMBS UP":742, FIST:549}],
+  ["THUMBS UP","Phone 2 cams", {"THUMBS UP":120, FIST:1127, "?":42, POINT:2}],
+  ["FIST","Mac", {FIST:1180, "THUMBS UP":158, POINT:26, "?":12, PEACE:3}],
+  ["FIST","Phone 2 cams", {FIST:1253, "?":79, POINT:28, PEACE:14, "OPEN PALM":3, "no hand":2}],
+  ["PEACE","Mac", {PEACE:1205, HORNS:112, "?":31, FIST:11, POINT:7, "OPEN PALM":5}],
+  ["PEACE","Phone 2 cams", {PEACE:1172, HORNS:104, "?":41, FIST:23, "OPEN PALM":23, POINT:8}]
+];
+document.getElementById("t-conf").innerHTML =
+  `<thead><tr><th>Cued sign</th><th>Setup</th><th>Right</th><th>Most common mistake</th><th>Share</th></tr></thead><tbody>` +
+  CONF.map(([cue, su, c]) => { const tot = Object.values(c).reduce((a,b)=>a+b,0);
+    const wrong = Object.entries(c).filter(([k])=>k!==cue).sort((a,b)=>b[1]-a[1])[0];
+    return `<tr><td class="name">${cue}</td><td>${su}</td><td>${(100*c[cue]/tot).toFixed(0)}%</td><td>${wrong[0]}</td><td class="neg">${(100*wrong[1]/tot).toFixed(0)}%</td></tr>`; }).join("") + "</tbody>";
+
+document.getElementById("t-link").innerHTML =
+  `<thead><tr><th>Link</th><th>fps</th><th>Frame gap median</th><th>Gap p95</th><th>Longest stall</th><th>Delay jitter p95</th><th>MB/s</th></tr></thead><tbody>
+  <tr><td class="name">Wi-Fi 5 GHz</td><td>22.4</td><td>31 ms</td><td class="neg">172 ms</td><td class="neg">355 ms</td><td class="neg">190 ms</td><td>3.35</td></tr>
+  <tr class="hl"><td class="name">USB cable</td><td>23.1</td><td>42 ms</td><td>55 ms</td><td>68 ms</td><td>31 ms</td><td>3.19</td></tr>
+  <tr class="hl"><td class="name">USB (2nd run)</td><td>23.2</td><td>42 ms</td><td>49 ms</td><td>71 ms</td><td>15 ms</td><td>3.09</td></tr></tbody>`;
+
+document.getElementById("t-air").innerHTML =
+  `<thead><tr><th>Run</th><th>Depth signal</th><th>Push hits</th><th>False presses while hovering</th><th>Note</th></tr></thead><tbody>
+  <tr><td class="name">16:43</td><td>Mac hand scale</td><td>0%</td><td>3 / 4</td><td style="text-align:left">first calibration was wrong</td></tr>
+  <tr><td class="name">16:43</td><td>Phone stereo (1 cm)</td><td>12%</td><td class="neg">12 / 4</td><td style="text-align:left">2.5–3 px shift per push</td></tr>
+  <tr><td class="name">16:54</td><td>Mac hand scale</td><td>62%</td><td>3 / 4</td><td style="text-align:left">after the self-correcting rest point</td></tr></tbody>`;
+
+function legend(id, keys) {
+  document.getElementById(id).innerHTML = keys.map(k => `<span>${sw(SET[k].cls)}${SET[k].label}</span>`).join("");
+}
+legend("lg1", ["mac","phone2","all3_cv","vote3"]);
+legend("lg2", ["mac","phone2","all3_cv","vote3"]);
+
+const NS = "http://www.w3.org/2000/svg";
+function el(tag, attrs, parent, text) { const e = document.createElementNS(NS, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]); if (text !== undefined) e.textContent = text; parent.appendChild(e); return e; }
+
+(function signChart() {
+  const svg = document.getElementById("c-sign"), keys = ["mac","phone2","all3_cv","vote3"];
+  const W = 900, H = 300, L = 40, B = 40, T = 14, gw = (W - L - 10) / SIGNS.length, bw = (gw - 22) / keys.length;
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`); svg.setAttribute("width", W); svg.style.maxWidth = "100%"; svg.style.minWidth = "620px";
+  const y = v => T + (H - T - B) * (1 - v / 100);
+  for (const v of [0, 25, 50, 75, 100]) { el("line", {x1:L, x2:W-10, y1:y(v), y2:y(v), class:"grid"}, svg); el("text", {x:L-6, y:y(v)+4, "text-anchor":"end"}, svg, v); }
+  SIGNS.forEach((s, i) => {
+    const x0 = L + i * gw + 11;
+    keys.forEach((k, j) => { const v = PERSIGN[k][s];
+      el("rect", {x:x0 + j*bw, y:y(v), width:bw-2, height:y(0)-y(v), class:"f-"+SET[k].cls}, svg);
+      if (s === "THUMBS UP" || s === "FIST") el("text", {x:x0 + j*bw + (bw-2)/2, y:y(v)-4, "text-anchor":"middle", class:"val"}, svg, Math.round(v)); });
+    el("text", {x:x0 + (gw-22)/2, y:H-16, "text-anchor":"middle"}, svg, s);
+  });
+})();
+
+(function latChart() {
+  const svg = document.getElementById("c-lat"), keys = ["mac","phone2","all3_cv","vote3"];
+  const W = 900, rowH = 44, L = 170, R = 60, H = keys.length * rowH + 40;
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`); svg.setAttribute("width", W); svg.style.maxWidth = "100%"; svg.style.minWidth = "560px";
+  const x = v => L + (W - L - R) * v / 1400;
+  for (const v of [0, 350, 700, 1050, 1400]) { el("line", {x1:x(v), x2:x(v), y1:6, y2:H-28, class:"grid"}, svg); el("text", {x:x(v), y:H-10, "text-anchor":"middle"}, svg, v + " ms"); }
+  keys.forEach((k, i) => { const p = POOLED[k], yy = 10 + i * rowH;
+    el("text", {x:L-10, y:yy+18, "text-anchor":"end"}, svg, SET[k].label);
+    el("rect", {x:x(0), y:yy+4, width:x(p.lat)-x(0), height:20, class:"f-"+SET[k].cls}, svg);
+    el("rect", {x:x(p.lat), y:yy+13, width:x(p.p90)-x(p.lat), height:2, class:"f-"+SET[k].cls}, svg);
+    el("rect", {x:x(p.p90)-1, y:yy+7, width:2, height:14, class:"f-"+SET[k].cls}, svg);
+    el("text", {x:x(p.p90)+6, y:yy+18, class:"val"}, svg, `${p.lat} / ${p.p90}`); });
+})();
+</script>

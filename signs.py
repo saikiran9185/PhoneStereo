@@ -151,11 +151,14 @@ def load_trust():
         return None
 
 
+NUM_HANDS = 1      # speed test / Air Buttons set 2 and follow the biggest (closest) hand
+
+
 def make_tracker():
     from mediapipe.tasks.python import BaseOptions, vision
     return vision.HandLandmarker.create_from_options(vision.HandLandmarkerOptions(
         base_options=BaseOptions(model_asset_path=MODEL), running_mode=vision.RunningMode.VIDEO,
-        num_hands=1, min_hand_detection_confidence=0.5, min_tracking_confidence=0.5))
+        num_hands=NUM_HANDS, min_hand_detection_confidence=0.5, min_tracking_confidence=0.5))
 
 
 def detect(tracker, img, ts_ms):
@@ -165,10 +168,13 @@ def detect(tracker, img, ts_ms):
                                             data=cv2.cvtColor(img, cv2.COLOR_BGR2RGB)), int(ts_ms))
     if not res.hand_landmarks:
         return None
-    score = res.handedness[0][0].score if res.handedness else 0.5
-    lms = [(l.x, l.y) for l in res.hand_landmarks[0]]
+    def span(h):
+        return max(max(l.x for l in h) - min(l.x for l in h), max(l.y for l in h) - min(l.y for l in h))
+    i = max(range(len(res.hand_landmarks)), key=lambda j: span(res.hand_landmarks[j]))   # closest hand
+    score = res.handedness[i][0].score if len(res.handedness) > i else 0.5
+    lms = [(l.x, l.y) for l in res.hand_landmarks[i]]
     xs, ys = [u for u, _ in lms], [v for _, v in lms]
-    return {"probs": finger_probs(res.hand_world_landmarks[0]), "score": float(score), "lms": lms,
+    return {"probs": finger_probs(res.hand_world_landmarks[i]), "score": float(score), "lms": lms,
             "size": float(max(max(xs) - min(xs), max(ys) - min(ys)))}   # hand size, share of the frame
 
 
