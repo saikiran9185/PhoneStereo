@@ -17,7 +17,8 @@ enum Mode: String, CaseIterable, Identifiable {
     case signs3 = "Sign Check · 3 cameras"
     case depth = "Live depth"
     case signsPhone = "Sign Check · phone only"
-    case touch = "Touch Screen"
+    case touch3d = "Touch 3D (stereo, phone in front)"
+    case touch = "Touch Screen (phone at side)"
     case speed = "Sign Cue Test (research)"
     case link = "Link test"
     var id: String { rawValue }
@@ -28,6 +29,7 @@ enum Mode: String, CaseIterable, Identifiable {
         case .link: "linktest.py"
         case .speed: "speedtest.py"
         case .touch: "touchscreen.py"
+        case .touch3d: "touch3d.py"
         default: "signs.py"
         }
     }
@@ -302,7 +304,7 @@ final class Model: ObservableObject {
     private func start(_ mode: Mode, ip: String) {
         var args = [mode.script, "--host", ip, "--token", code.trimmingCharacters(in: .whitespaces)] + mode.extra
         if link == .usb && mode != .link { _ = runAdb(["-s", usbSerial ?? "", "forward", "tcp:27183", "tcp:27183"]) }
-        if mode == .touch && !AXIsProcessTrusted() {
+        if (mode == .touch || mode == .touch3d) && !AXIsProcessTrusted() {
             // Live touch posts mouse clicks and arrow keys: macOS asks for Accessibility once.
             let opts = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
             _ = AXIsProcessTrustedWithOptions(opts)
@@ -446,7 +448,7 @@ struct ContentView: View {
                         Text(mode.rawValue).frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.borderedProminent)
-                    .tint(mode == .touch ? .blue : mode == .air ? .green : mode == .speed ? .pink : mode == .depth ? .cyan : mode == .link ? .gray : .orange)
+                    .tint(mode == .touch || mode == .touch3d ? .blue : mode == .air ? .green : mode == .speed ? .pink : mode == .depth ? .cyan : mode == .link ? .gray : .orange)
                     .controlSize(.large)
                     .disabled(m.ip == nil || m.running != nil)
                 }
