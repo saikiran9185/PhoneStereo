@@ -268,3 +268,50 @@ def test_depth_analysis_finds_a_signal_that_grows_with_distance():
     assert abs(rep["signals"]["parallax_v"]["rank_corr"]) < 0.3
     assert rep["signals"]["split_pct"]["cv_error_cm"]["median"] < 3
     assert rep["tracked_pct"][20]["phone"] == 100.0
+
+
+def test_pinch_click_lands_where_you_pointed_and_drag_has_no_jump():
+    import numpy as np
+    from surfacetouch import pinch
+    c = pinch.Cursor()
+    tip = np.array([500.0, 300.0])
+    # pointing, fingers open
+    for i in range(5):
+        out = c.update(i * 0.05, 0.9, tip, tip + [40, 40])
+    assert np.allclose(out, tip)
+    # fingers close: the index tip slides 30 px toward the thumb, cursor must stay put
+    t = 0.3
+    for k, r in enumerate((0.55, 0.45, 0.35, 0.25, 0.2)):
+        moved = tip + [10 * k, 10 * k]
+        out = c.update(t, r, moved, moved + [15, 15])
+        t += 0.05
+    assert c.closed and np.allclose(out, tip, atol=1)
+    # drag: past the dead zone the cursor starts moving, continuing from where it was (no jump)
+    out = c.update(t, 0.2, moved + [40, 0], moved + [55, 15])
+    assert np.allclose(out, tip, atol=1)
+    t += 0.05
+    out = c.update(t, 0.2, moved + [140, 0], moved + [155, 15])
+    assert np.allclose(out, tip + [100, 0], atol=1)
+    # release: cursor holds still briefly (no jump on opening)
+    out2 = c.update(t + 0.05, 0.6, moved + [130, -20], moved + [160, 0])
+    assert not c.closed and np.allclose(out2, out)
+    assert pinch.prob(0.1) > 0.95 and pinch.prob(0.6) < 0.05 and abs(pinch.prob(0.34) - 0.5) < 0.01
+
+
+def test_pinch_state_machine_tap_is_click_hold_is_drag():
+    from surfacetouch.state import TouchStateMachine
+    from surfacetouch import pinch
+    sm = TouchStateMachine(p_down=0.6, p_up=0.15, confirm_down=0.06, confirm_up=0.08)
+    ev, t = [], 0.0
+    seq = [0.9] * 5 + [0.2] * 4 + [0.9] * 5            # quick pinch (~0.2 s)
+    for r in seq:
+        ev += [e["event"] for e in sm.update(t, True, pinch.prob(r), (0.5, 0.5))]
+        t += 0.05
+    assert "CLICK" in ev
+    sm = TouchStateMachine(p_down=0.6, p_up=0.15, confirm_down=0.06, confirm_up=0.08)
+    ev, t = [], 0.0
+    for i in range(40):                                  # pinch held 1.5 s while moving
+        r = 0.2 if 3 <= i < 33 else 0.9
+        ev += [e["event"] for e in sm.update(t, True, pinch.prob(r), (0.3 + 0.01 * i, 0.5))]
+        t += 0.05
+    assert "TOUCH_MOVE" in ev and "TOUCH_UP" in ev and "CLICK" not in ev

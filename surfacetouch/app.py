@@ -31,7 +31,7 @@ import viewer as V
 from touch3d import ARUCO, Pair
 from touchscreen import ax_ok, displays, key, mouse, tink
 
-from . import contact, depthtest, maccam, record, replay, shadow, teach, zoom
+from . import contact, depthtest, maccam, pinch, record, replay, shadow, teach, zoom
 from .state import TouchStateMachine
 
 S.NUM_HANDS = 2
@@ -89,6 +89,9 @@ class App:
         self.mac, self.Hm, self.mac_lm, self.mac_seen = None, None, None, 0
         self.crop, self.zoomed, self.calib_id = None, False, 0
         self.flock = replay.FingerLock()
+        self.click = a.click                             # "pinch" (thumb + index) or "touch" (finger on the wall)
+        self.pcur = pinch.Cursor()
+        self.pinch_r = None
         self.vrows = []
         self.load()
 
@@ -285,7 +288,7 @@ class App:
         pos = None
         if valid:
             lm = fr["lm_a"]
-            if not self.a.no_finger_lock:                # pointing finger, not whatever MediaPipe calls "index"
+            if not self.a.no_finger_lock and self.click != "pinch":                # pointing finger, not whatever MediaPipe calls "index"
                 lm = replay.with_tip(lm, self.flock.tip(lm, now))
             gray = cv2.GaussianBlur(cv2.cvtColor(fr["a"], cv2.COLOR_BGR2GRAY).astype(np.float32), (3, 3), 0)
             if self.state == "live":
@@ -304,9 +307,22 @@ class App:
             self.feat, self.dbg = f, d
             s = cv2.perspectiveTransform(np.array([[lm[8]]], np.float32), self.Hs)[0, 0]
             pos = (float(s[0] / self.W), float(s[1] / self.H))
-            on_wall = -0.03 <= pos[0] <= 1.03 and -0.03 <= pos[1] <= 1.03 and f["lit"] > 0.15
-            valid = on_wall
-            self.p = self.model.prob(f) if valid else 0.0
+            if self.click == "pinch":
+                rm = pinch.ratio(self.mac_lm) if (self.mac_lm is not None and f.get("mac_ok") and f["mac_d_n"] < 1.5) else None
+                rp = pinch.ratio(lm)
+                self.pinch_r = pinch.combined(rp, rm)
+                f["pinch_phone"], f["pinch_mac"] = rp, rm
+                mid = cv2.perspectiveTransform(np.array([[(lm[4] + lm[8]) / 2]], np.float32), self.Hs)[0, 0]
+                c = self.pcur.update(now, self.pinch_r, (pos[0] * self.W, pos[1] * self.H), (mid[0], mid[1]))
+                if c is not None:
+                    pos = (float(c[0] / self.W), float(c[1] / self.H))
+                on_wall = -0.03 <= pos[0] <= 1.03 and -0.03 <= pos[1] <= 1.03
+                valid = on_wall
+                self.p = pinch.prob(self.pinch_r) if valid else 0.0
+            else:
+                on_wall = -0.03 <= pos[0] <= 1.03 and -0.03 <= pos[1] <= 1.03 and f["lit"] > 0.15
+                valid = on_wall
+                self.p = self.model.prob(f) if valid else 0.0
             self.no_hand_since = None
         else:
             self.p = 0.0
@@ -349,6 +365,11 @@ class App:
 
     def live_event(self, e, now):
         n = e["event"]
+        if n == "HOVER" and self.click == "pinch" and e["x"] is not None and not getattr(self, "lv", None):
+            if now - getattr(self, "_hover_t", 0) > 0.03:          # pointer follows the finger (you see where you aim)
+                self._hover_t = now
+                mouse("move", *self.gx(e["x"], e["y"]))
+            return
         if n == "TOUCH_DOWN":
             self.lv = {"start": (e["x"], e["y"]), "t": now, "pressed": False}
         elif n == "TOUCH_MOVE" and getattr(self, "lv", None):
@@ -670,6 +691,8 @@ class App:
             put("E  Experiment T: teach (hold mouse button / Shift while touching)    V  Experiment B: accuracy grid", 30, 95)
             put("D  Demo wall: buttons, draw, drag, slider    L  Live: control slides     C  recalibrate   Q  quit", 30, 125)
             put("H  Experiment H: hand depth - fingertip at 0 / 5 / 10 / 20 / 40 cm from the wall", 30, 155)
+            put(f"P  click by: {'PINCH (thumb + index) - quick pinch = click, pinch and hold = drag' if self.click == 'pinch' else 'TOUCHING the wall'}",
+                30, 215, 0.55, (40, 40, 220) if self.click == "pinch" else (90, 90, 90), 1)
             put("Touch anywhere to try: the ring shows the touch engine.", 30, 185, 0.5, (90, 90, 90), 1)
             y = 210
             for k_, rep in self.results.items():
@@ -717,11 +740,12 @@ class App:
             kind, (x, y) = self.vplan[self.vi]
             if kind == "TOUCH":
                 cv2.circle(img, P(x, y), 14, (60, 170, 60), -1, cv2.LINE_AA)
-                put(f"B {self.vi + 1}/{len(self.vplan)}: TOUCH the green dot", 30, 40, 0.7, (40, 130, 40))
+                put(f"B {self.vi + 1}/{len(self.vplan)}: " + ("point at the green dot and PINCH" if self.click == "pinch"
+                    else "TOUCH the green dot"), 30, 40, 0.7, (40, 130, 40))
             else:
                 cv2.circle(img, P(x, y), 22, (30, 140, 230), 3, cv2.LINE_AA)
-                put(f"B {self.vi + 1}/{len(self.vplan)}: HOVER over the ring, 3-5 cm from the wall - do not touch",
-                    30, 40, 0.7, (30, 120, 220))
+                put(f"B {self.vi + 1}/{len(self.vplan)}: " + ("point at the ring - do NOT pinch" if self.click == "pinch"
+                    else "HOVER over the ring, 3-5 cm from the wall - do not touch"), 30, 40, 0.7, (30, 120, 220))
         elif st == "demo":
             d = self.demo
             for name, ((bx, by, bw, bh), col) in self.BUTTONS.items():
@@ -780,7 +804,8 @@ class App:
                  f"shadow found {f.get('found', '-')}   gap {f.get('gap_n', '-')}   nearest {f.get('near_n', '-')} (finger lengths)",
                  f"stereo shift {f.get('parallax_v', '-') if f.get('parallax_ok') else '-'} px   sep {f.get('sep_n', '-')}",
                  f"fps {self.pair.rx.fps(0):.0f}   frame age {1000 * np.median(self.frame_age):.0f} ms" if self.frame_age else "fps -",
-                 f"false touches (live/demo) {self.false_touches}"]
+                 f"false touches (live/demo) {self.false_touches}",
+                 f"pinch {self.pinch_r:.2f} (closed < {pinch.ENTER}, open > {pinch.EXIT})" if self.pinch_r is not None else "pinch -"]
         for i, t in enumerate(lines):
             put(t, x0, 350 + i * 28, 0.55)
         bx, by = x0, 530
@@ -811,6 +836,8 @@ class App:
 
     # ---- states
     def new_sm(self):
+        if self.click == "pinch":
+            return TouchStateMachine(p_down=0.6, p_up=0.15, confirm_down=0.06, confirm_up=0.08)
         t = self.model.thr if self.model.trained else 0.8
         return TouchStateMachine(p_down=t, p_up=max(0.05, 0.6 * t))
 
@@ -913,7 +940,8 @@ class App:
                                   "x": None if self.cur_pos is None else round(self.cur_pos[0], 4),
                                   "y": None if self.cur_pos is None else round(self.cur_pos[1], 4),
                                   "hand": fr["src"] or "", "spot": spot, "ready": ready, "tx": tx, "ty": ty,
-                                  "calib": self.calib_id, "mac_t": round(self.mac.latest_t, 3) if self.mac else ""})
+                                  "calib": self.calib_id, "click": self.click,
+                                  "pinch_r": "" if self.pinch_r is None else round(self.pinch_r, 3), "mac_t": round(self.mac.latest_t, 3) if self.mac else ""})
                 k = cv2.waitKey(5) & 0xFF
                 if k in (ord("q"), 27):
                     break
@@ -934,6 +962,10 @@ class App:
                         self.go("teach")
                     if k == ord("a"):
                         self.go("collect")
+                    if k == ord("p"):
+                        self.click = "touch" if self.click == "pinch" else "pinch"
+                        self.sm = self.new_sm()
+                        self.log(f"click by {self.click}", show=True)
                     if k == ord("h"):                   # Experiment H: depth of the hand from the wall
                         self.go("teach")
                         self.tplan, self.t_arm, self.t_cue, self.t_kind = depthtest.plan(), 2, True, "depth"
@@ -975,6 +1007,8 @@ def main():
     ap.add_argument("--zoom", action="store_true",
                     help="USB only: crop the phone sensor to the wall after the first calibration (./build_streamer.sh once)")
     ap.add_argument("--no-finger-lock", action="store_true", help="use MediaPipe's index tip as is")
+    ap.add_argument("--click", choices=["pinch", "touch"], default="pinch",
+                    help="what counts as a click: thumb+index pinch (default) or the finger touching the wall")
     ap.add_argument("--stream-size", default="960x720", help="phone stream size in --zoom mode")
     ap.add_argument("--phone-lag", type=float, default=0.06, help="phone frame delay vs Mac camera, s")
     a = ap.parse_args()
