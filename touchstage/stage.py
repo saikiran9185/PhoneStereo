@@ -24,10 +24,10 @@ from surfacetouch import maccam, zoom
 from touch3d import Pair
 from touchscreen import tink
 
-from .depth import DepthWorker
+from .depth import BONES as BONES_, DepthWorker
 
 DASH = "Touch Stage"
-ENTER, EXIT, HOLD_S = 0.35, 0.65, 0.10          # closeness to flip to TOUCH / back to HOVER, and for how long
+ENTER, EXIT, HOLD_S = 0.35, 0.65, 0.20          # closeness to flip to TOUCH / back to HOVER, and for how long
 LEVELS = os.path.join(CONF_DIR, "touchstage_levels.json")
 BG, PANEL, TXT, DIM = (28, 24, 22), (44, 38, 34), (235, 235, 235), (150, 150, 150)
 GREEN, BLUE, AMBER, GREY = (90, 210, 90), (230, 160, 60), (40, 180, 240), (120, 120, 120)
@@ -88,10 +88,14 @@ class Stage(App):
             s = cv2.perspectiveTransform(np.array([[lm[8]]], np.float32), self.Hs)[0, 0]
             p = np.array([s[0] / self.W, s[1] / self.H])
             if -0.05 <= p[0] <= 1.05 and -0.05 <= p[1] <= 1.05:
-                self.pos_s = p if self.pos_s is None else self.pos_s + 0.55 * (p - self.pos_s)
+                self.pos_s = p if self.pos_s is None else self.pos_s + 0.4 * (p - self.pos_s)
                 pos = tuple(self.pos_s)
+                self.pos_t = now
         if pos is None:
-            self.pos_s = None
+            if self.pos_s is not None and now - getattr(self, "pos_t", 0) < 0.4:
+                pos = tuple(self.pos_s)                   # hand missed for a moment: keep the last point
+            else:
+                self.pos_s = None
         self.cur_pos = pos
         mf, mlm = None, None
         if self.mac is not None:
@@ -162,48 +166,85 @@ class Stage(App):
                 cv2.circle(img, c, r, (40, 140, 230), 2, cv2.LINE_AA)
         return img
 
-    # ---- Mac dashboard
+    # ---- Mac dashboard: every camera feed + every live number
+    def cam_view(self, img, H, lm, size, label, col, seen_n=None):
+        """Full camera frame, the projected wall outlined, the hand skeleton and fingertip."""
+        w, h = size
+        if img is None:
+            v = np.full((h, w, 3), PANEL, np.uint8)
+            put(v, "no frames", w // 2 - 45, h // 2, 0.55, DIM)
+        else:
+            v = img.copy()
+            if H is not None:
+                q = cv2.perspectiveTransform(np.array([[[0, 0], [self.W, 0], [self.W, self.H], [0, self.H]]], np.float32),
+                                             np.linalg.inv(H))[0]
+                cv2.polylines(v, [q.astype(np.int32)], True, (90, 210, 90), max(2, v.shape[1] // 300), cv2.LINE_AA)
+            if lm is not None:
+                p = np.asarray(lm, np.int32)
+                for a, b in BONES_:
+                    cv2.line(v, tuple(p[a]), tuple(p[b]), (255, 230, 0) if b in (6, 7, 8) and a in (5, 6, 7) else (240, 240, 240),
+                             max(2, v.shape[1] // 320), cv2.LINE_AA)
+                cv2.circle(v, tuple(p[8]), max(6, v.shape[1] // 90), (80, 255, 80), 2, cv2.LINE_AA)
+            v = cv2.resize(v, (w, h))
+        cv2.rectangle(v, (0, 0), (w, 24), (0, 0, 0), -1)
+        put(v, label, 8, 17, 0.48, col)
+        if seen_n is not None:
+            put(v, seen_n, w - 120, 17, 0.45, TXT)
+        return v
+
     def dashboard(self):
-        W_, H_ = 1280, 790
+        W_, H_ = 1470, 880
         img = np.full((H_, W_, 3), BG, np.uint8)
         w = self.worker
-        now = time.time()
-        # header
-        put(img, "TOUCH STAGE", 20, 40, 0.95, TXT, 2)
-        pf = (len(self.ftimes) - 1) / max(1e-3, self.ftimes[-1] - self.ftimes[0]) if len(self.ftimes) > 1 else 0
-        chips = [f"phone {pf:.0f} fps", f"Mac {self.mac.fps:.0f} fps" if self.mac else "Mac off",
-                 f"depth {w.fps:.0f} fps / {w.ms:.0f} ms", f"model {w.model}",
-                 "wall calibrated" if self.state == "stage" else f"calibrating: {self.state}"]
-        x = 300
-        for c in chips:
-            tw = cv2.getTextSize(c, F, 0.5, 1)[0][0] + 20
-            cv2.rectangle(img, (x, 18), (x + tw, 46), PANEL, -1)
-            put(img, c, x + 10, 38, 0.5, GREEN if "calibrated" == c.split(" ")[-1] else TXT)
-            x += tw + 8
-        # camera tiles
-        for i, (name, label) in enumerate((("phone", "PHONE  -  where + depth"), ("mac", "MAC  -  depth"))):
-            x0, y0 = 20 + i * 420, 66
-            t = w.cams[name].tile
-            if self.state != "stage":                          # calibrating: show what each camera sees
-                raw = (self.last_fr["a"] if self.last_fr is not None else None) if name == "phone" else \
-                    (self.mac.latest() if self.mac else None)
-                t = None if raw is None else cv2.resize(raw, (400, 300))
-                if t is not None:
-                    seen = self.seen[0] if name == "phone" and getattr(self, "seen", None) else getattr(self, "mac_seen", 0)
-                    cv2.rectangle(t, (0, 270), (400, 300), (0, 0, 0), -1)
-                    put(t, f"markers seen: {seen} / 15", 10, 291, 0.5, GREEN if seen >= 12 else AMBER)
-            if t is None:
-                cv2.rectangle(img, (x0, y0), (x0 + 400, y0 + 300), PANEL, -1)
-                put(img, "no hand seen", x0 + 140, y0 + 155, 0.6, DIM)
-            else:
-                img[y0:y0 + 300, x0:x0 + 400] = t
-            cv2.rectangle(img, (x0, y0), (x0 + 400, y0 + 26), PANEL, -1)
-            put(img, label, x0 + 8, y0 + 19, 0.5, PURPLE if name == "phone" else YELLOW)
-            v = w.cams[name].value
-            put(img, "-" if v is None else f"{v:.0f} mm off wall", x0 + 260, y0 + 19, 0.5, TXT)
-        # verdict + bars
-        x0, y0 = 860, 66
         cams = w.cams
+        now = time.time()
+        # ---- header chips
+        put(img, "TOUCH STAGE", 18, 36, 0.9, TXT, 2)
+        pf = (len(self.ftimes) - 1) / max(1e-3, self.ftimes[-1] - self.ftimes[0]) if len(self.ftimes) > 1 else 0
+        chips = [(f"phone {pf:.0f} fps", TXT), (f"Mac {self.mac.fps:.0f} fps" if self.mac else "Mac off", TXT),
+                 (f"AI depth {w.fps:.0f} fps  {w.ms:.0f} ms", TXT), (f"model {w.model}", TXT),
+                 ("wall calibrated" if self.state == "stage" else f"calibrating ({self.state})",
+                  GREEN if self.state == "stage" else AMBER)]
+        x = 260
+        for c, col in chips:
+            tw = cv2.getTextSize(c, F, 0.5, 1)[0][0] + 20
+            cv2.rectangle(img, (x, 14), (x + tw, 42), PANEL, -1)
+            put(img, c, x + 10, 34, 0.5, col)
+            x += tw + 8
+        # ---- row 1: the four views
+        fr = self.last_fr
+        mf, mlm = None, None
+        if self.mac is not None:
+            with self.mac.lock:
+                if self.mac.frame is not None:
+                    mf = self.mac.frame.copy()
+                    mlm = self.mac.hist[-1][1][0] if self.mac.hist and self.mac.hist[-1][1] else None
+        y0, tw_, th_ = 56, 350, 262
+        seen_p = f"markers {self.seen[0]}/15" if self.state != "stage" and getattr(self, "seen", None) else None
+        seen_m = f"markers {self.mac_seen}/15" if self.state != "stage" else None
+        views = [self.cam_view(None if fr is None else fr["a"], self.Hs, None if fr is None else fr["lm_a"], (tw_, th_),
+                               "1  PHONE camera (finds WHERE)", PURPLE, seen_p),
+                 self.cam_view(mf, self.Hm, mlm, (tw_, th_), "2  MAC camera", YELLOW, seen_m)]
+        for name, label, col in (("phone", "3  PHONE hand - AI depth", PURPLE), ("mac", "4  MAC hand - AI depth", YELLOW)):
+            t = cams[name].tile
+            if t is None:
+                t = np.full((th_, tw_, 3), PANEL, np.uint8)
+                put(t, "no hand seen", tw_ // 2 - 60, th_ // 2, 0.55, DIM)
+            else:
+                t = t.copy()
+            cv2.rectangle(t, (0, 0), (tw_, 24), (0, 0, 0), -1)
+            put(t, label, 8, 17, 0.48, col)
+            v = cams[name].value
+            cv2.rectangle(t, (0, th_ - 26), (tw_, th_), (0, 0, 0), -1)
+            put(t, "finger off wall: " + ("-" if v is None else f"{v:.0f} mm"), 8, th_ - 8, 0.5, TXT)
+            views.append(t)
+        for i, v in enumerate(views):
+            x0 = 18 + i * (tw_ + 10)
+            img[y0:y0 + th_, x0:x0 + tw_] = v
+        put(img, "green outline = projected wall    cyan = index finger    colour on the hand: red/yellow = nearer the camera, blue = farther",
+            18, y0 + th_ + 20, 0.45, DIM)
+        # ---- row 2 left: verdict, bars, numbers
+        x0, y1 = 18, y0 + th_ + 36
         ready = all("touch" in c.levels and "hover" in c.levels for c in cams.values())
         if self.state != "stage":
             vt, vc = "CALIBRATING", AMBER
@@ -213,67 +254,82 @@ class Stage(App):
             vt, vc = "NO HAND", GREY
         else:
             vt, vc = ("TOUCH", GREEN) if self.touch else ("HOVER", BLUE)
-        cv2.rectangle(img, (x0, y0), (x0 + 400, y0 + 90), vc, -1)
-        tw = cv2.getTextSize(vt, F, 1.6, 3)[0][0]
-        put(img, vt, x0 + 200 - tw // 2, y0 + 62, 1.6, (20, 20, 20), 3)
+        cv2.rectangle(img, (x0, y1), (x0 + 520, y1 + 80), vc, -1)
+        tw = cv2.getTextSize(vt, F, 1.5, 3)[0][0]
+        put(img, vt, x0 + 260 - tw // 2, y1 + 55, 1.5, (20, 20, 20), 3)
         if self.state != "stage":
-            put(img, self.cal_msg[:58], x0, y0 + 112, 0.45, AMBER)
-            put(img, self.cal_msg[58:], x0, y0 + 132, 0.45, AMBER)
-        yb = y0 + 150 if self.state != "stage" else y0 + 112
-        put(img, "how close to the wall   (full = your touch level)", x0, yb, 0.45, DIM)
-        for j, (lab, val, col) in enumerate((("fused", self.fused, TXT),
-                                            ("phone", cams["phone"].closeness(), PURPLE),
-                                            ("Mac", cams["mac"].closeness(), YELLOW))):
-            yy = yb + 18 + j * 34
+            put(img, self.cal_msg[:70], x0, y1 + 100, 0.45, AMBER)
+        elif not ready:
+            put(img, "finger ON the wall + T,  then 5-10 cm OFF + H", x0, y1 + 100, 0.48, AMBER)
+        yb = y1 + 118
+        put(img, "closeness to the wall  (full bar = your touch level; marks = switch points)", x0, yb, 0.43, DIM)
+        for j, (lab, val, col) in enumerate((("fused", self.fused, TXT), ("phone", cams["phone"].closeness(), PURPLE),
+                                             ("Mac", cams["mac"].closeness(), YELLOW))):
+            yy = yb + 14 + j * 30
             put(img, lab, x0, yy + 15, 0.5, col)
-            bx, bw_ = x0 + 70, 330
+            bx, bw_ = x0 + 70, 450
             cv2.rectangle(img, (bx, yy), (bx + bw_, yy + 20), PANEL, -1)
             if val is not None:
                 fill = int(np.clip(1 - val, 0, 1) * bw_)
                 cv2.rectangle(img, (bx, yy), (bx + fill, yy + 20), GREEN if (lab == "fused" and self.touch) else col, -1)
             for th in (ENTER, EXIT):
                 xt = bx + int((1 - th) * bw_)
-                cv2.line(img, (xt, yy - 3), (xt, yy + 23), DIM, 1)
-        yp = yb + 130
-        lv = lambda c: (f"touch {c.levels['touch']:.0f} / hover {c.levels['hover']:.0f} mm"
-                        if "touch" in c.levels and "hover" in c.levels else "levels not set")
-        rows = [("fingertip on wall", "-" if self.cur_pos is None else f"x {self.cur_pos[0]:.2f}   y {self.cur_pos[1]:.2f}"),
-                ("phone levels", lv(cams["phone"])), ("Mac levels", lv(cams["mac"])),
-                ("cameras used", self.fuse), ("smoothing", f"{w.smooth} / 5"), ("strokes", str(len(self.strokes)))]
+                cv2.line(img, (xt, yy - 3), (xt, yy + 23), TXT, 1)
+        # numbers table
+        yt = yb + 112
+        hdr = ["", "seen", "raw mm", "smooth mm", "touch lvl", "hover lvl", "closeness"]
+        cx = [x0, x0 + 70, x0 + 130, x0 + 205, x0 + 295, x0 + 375, x0 + 455]
+        for c, t in zip(cx, hdr):
+            put(img, t, c, yt, 0.42, DIM)
+        f1 = lambda v: "-" if v is None else f"{v:.0f}"
+        for j, (name, col) in enumerate((("phone", PURPLE), ("mac", YELLOW))):
+            c = cams[name]
+            cl = c.closeness()
+            vals = [name, "yes" if c.seen else "no", f1(c.raw), f1(c.value), f1(c.levels.get("touch")),
+                    f1(c.levels.get("hover")), "-" if cl is None else f"{cl:.2f}"]
+            for cc, t in zip(cx, vals):
+                put(img, t, cc, yt + 22 + j * 22, 0.46, col if cc == x0 else TXT)
+        rows = [("fingertip on wall", "-" if self.cur_pos is None else f"x {self.cur_pos[0]:.3f}   y {self.cur_pos[1]:.3f}"),
+                ("fused closeness", "-" if self.fused is None else f"{self.fused:.2f}   (TOUCH below {ENTER}, HOVER above {EXIT}, held {HOLD_S:.2f} s)"),
+                ("cameras used / smoothing", f"{self.fuse}   /   {w.smooth} of 5"),
+                ("strokes drawn", str(len(self.strokes)))]
         for j, (k, v) in enumerate(rows):
-            put(img, k, x0, yp + j * 24, 0.48, DIM)
-            put(img, v, x0 + 150, yp + j * 24, 0.48, TXT)
-        # graph: last 10 s
-        gx0, gy0, gw, gh = 20, 400, 1240, 300
+            put(img, k, x0, yt + 76 + j * 22, 0.44, DIM)
+            put(img, v, x0 + 200, yt + 76 + j * 22, 0.44, TXT)
+        # ---- row 2 right: graph, last 10 s
+        gx0, gy0, gw, gh = 560, y1, W_ - 578, H_ - y1 - 40
         cv2.rectangle(img, (gx0, gy0), (gx0 + gw, gy0 + gh), PANEL, -1)
-        put(img, "last 10 s   (bottom = your touch level, top = your hover level)", gx0 + 10, gy0 + 20, 0.48, DIM)
-        Y = lambda v: int(gy0 + gh - 30 - (np.clip(v, -0.3, 1.3) + 0.3) / 1.6 * (gh - 60))
+        put(img, "last 10 s     bottom line = your touch level    top line = your hover level", gx0 + 10, gy0 + 20, 0.45, DIM)
+        Y = lambda v: int(gy0 + gh - 40 - (np.clip(v, -0.3, 1.3) + 0.3) / 1.6 * (gh - 70))
         X = lambda t: int(gx0 + gw - 10 - (now - t) / 10.0 * (gw - 20))
-        band = np.array([[gx0 + 10, Y(ENTER)], [gx0 + gw - 10, Y(ENTER)], [gx0 + gw - 10, Y(EXIT)], [gx0 + 10, Y(EXIT)]])
         ov = img.copy()
-        cv2.fillPoly(ov, [band], (70, 62, 56))
+        cv2.rectangle(ov, (gx0 + 10, Y(EXIT)), (gx0 + gw - 10, Y(ENTER)), (75, 66, 58), -1)
         for t, f, tch in self.fhist:
             if tch and now - t < 10:
-                cv2.line(ov, (X(t), gy0 + gh - 22), (X(t), gy0 + gh - 10), GREEN, 3)
-        cv2.addWeighted(ov, 0.7, img, 0.3, 0, img)
+                cv2.line(ov, (X(t), gy0 + gh - 30), (X(t), gy0 + gh - 16), GREEN, 3)
+        cv2.addWeighted(ov, 0.75, img, 0.25, 0, img)
         cv2.line(img, (gx0 + 10, Y(0)), (gx0 + gw - 10, Y(0)), GREEN, 1)
         cv2.line(img, (gx0 + 10, Y(1)), (gx0 + gw - 10, Y(1)), BLUE, 1)
-        put(img, "touch", gx0 + gw - 60, Y(0) - 6, 0.42, GREEN)
-        put(img, "hover", gx0 + gw - 60, Y(1) - 6, 0.42, BLUE)
+        put(img, "touch", gx0 + gw - 58, Y(0) - 6, 0.42, GREEN)
+        put(img, "hover", gx0 + gw - 58, Y(1) - 6, 0.42, BLUE)
         for name, col in (("phone", PURPLE), ("mac", YELLOW)):
             c = cams[name]
             if "touch" in c.levels and "hover" in c.levels:
                 g = (c.levels["hover"] - c.levels["touch"]) or 1e-6
+                raw = [(X(t), Y((v - c.levels["touch"]) / g)) for t, v in c.raw_hist if now - t < 10]
+                if len(raw) > 1:
+                    for p in raw:
+                        cv2.circle(img, p, 1, tuple(int(0.55 * v) for v in col), -1)
                 pts = [(X(t), Y((v - c.levels["touch"]) / g)) for t, v in c.hist if now - t < 10]
                 if len(pts) > 1:
                     cv2.polylines(img, [np.array(pts, np.int32)], False, col, 1, cv2.LINE_AA)
         pts = [(X(t), Y(f)) for t, f, _ in self.fhist if now - t < 10]
         if len(pts) > 1:
             cv2.polylines(img, [np.array(pts, np.int32)], False, TXT, 3, cv2.LINE_AA)
-        put(img, "white = fused   purple = phone   yellow = Mac   green ticks = touching", gx0 + 10, gy0 + gh - 34 + 30, 0.42, DIM)
-        # footer
+        put(img, "white = fused (decides)   purple / yellow lines = phone / Mac smoothed   dots = raw frames   green ticks = touching",
+            gx0 + 10, gy0 + gh - 4, 0.4, DIM)
         put(img, "T touch level   H hover level   X clear   F cameras   M model   +/- smoothing   C recalibrate   Q quit",
-            20, H_ - 22, 0.5, DIM)
+            18, H_ - 14, 0.5, DIM)
         return img
 
     # ---- main loop (replaces the old wizard / experiments)

@@ -42,10 +42,13 @@ def load(name="metric"):
     return net.to(DEV).eval()
 
 
-def hand_crop(img, lm, scale=1.9):
+def hand_crop(img, lm, scale=1.9, box=None):
     lm = np.asarray(lm, float)
-    c = (lm.min(0) + lm.max(0)) / 2
-    side = max(np.ptp(lm[:, 0]), np.ptp(lm[:, 1]), 40) * scale
+    if box is None:
+        c = (lm.min(0) + lm.max(0)) / 2
+        side = max(np.ptp(lm[:, 0]), np.ptp(lm[:, 1]), 40) * scale
+    else:
+        c, side = box
     h, w = img.shape[:2]
     x0, y0 = int(max(0, c[0] - side / 2)), int(max(0, c[1] - side / 2))
     x1, y1 = int(min(w, c[0] + side / 2)), int(min(h, c[1] + side / 2))
@@ -92,13 +95,19 @@ def off_wall_mm(dep, lm):
     return 1000.0 * (float(np.median(dep[ring])) - tip)
 
 
-def tile(crop, dep, lm, size_wh):
+def tile(crop, dep, lm, size_wh, rng=None):
     """Camera crop in grey, the hand coloured by depth (red/yellow = nearer you), skeleton, index finger in cyan."""
     w, h = size_wh
     m = hand_mask(crop.shape, lm)
     grey = cv2.cvtColor(cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY), cv2.COLOR_GRAY2BGR)
     hv = -dep[m > 0]
     lo, hi = (np.percentile(hv, 5), np.percentile(hv, 95)) if hv.size else (0, 1)
+    if rng is not None:                                 # running colour range: no colour flashing
+        if rng[0] is None:
+            rng[:] = [lo, hi]
+        rng[0] += 0.15 * (lo - rng[0])
+        rng[1] += 0.15 * (hi - rng[1])
+        lo, hi = rng
     n = np.clip((-dep - lo) / max(hi - lo, 1e-6) * 255, 0, 255).astype(np.uint8)
     col = cv2.applyColorMap(n, cv2.COLORMAP_TURBO)
     out = np.where(m[..., None] > 0, (0.75 * col + 0.25 * crop).astype(np.uint8), (0.55 * grey).astype(np.uint8))
@@ -122,19 +131,38 @@ class Cam:
         self.levels = {}
         self.tile = None
         self.t = 0.0
+        self.raw_hist = collections.deque(maxlen=200)  # (t, raw)
+        self.box = None                                 # smoothed crop (centre, side)
+        self.rng = [None, None]
+        self.lost_since = None
+        self.seen = False
 
     def feed(self, r, smooth, t):
         self.raw = r
-        if r is None:
-            self.win.clear()
-            self.value = None
+        if r is None:                                   # keep the last value through short dropouts (no flicker)
+            self.lost_since = self.lost_since or t
+            if t - self.lost_since > 0.5:
+                self.win.clear()
+                self.value, self.seen, self.box = None, False, None
             return
+        self.lost_since, self.seen = None, True
+        self.raw_hist.append((t, r))
         self.win.append(r)
         med = float(np.median(list(self.win)[-(1 + 2 * smooth):]))
         prev = self.value if self.value is not None else (self.hist[-1][1] if self.hist else None)
         self.value = med if prev is None else prev + ALPHA[smooth] * (med - prev)
         self.hist.append((t, self.value))
         self.t = t
+
+    def crop_box(self, lm, scale=1.9):
+        lm = np.asarray(lm, float)
+        c = (lm.min(0) + lm.max(0)) / 2
+        side = max(np.ptp(lm[:, 0]), np.ptp(lm[:, 1]), 40) * scale
+        if self.box is None or np.linalg.norm(c - self.box[0]) > 0.5 * self.box[1]:
+            self.box = (c, side)
+        else:
+            self.box = (self.box[0] + 0.35 * (c - self.box[0]), self.box[1] + 0.2 * (side - self.box[1]))
+        return self.box
 
     def closeness(self):
         """0 = at your touch level, 1 = at your hover level; None if not set or not seen."""
@@ -152,7 +180,7 @@ class Cam:
 class DepthWorker(threading.Thread):
     """Runs continuously on the newest phone + Mac frames the app hands over."""
 
-    def __init__(self, model="metric", size=266, smooth=3):
+    def __init__(self, model="metric", size=266, smooth=4):
         super().__init__(daemon=True)
         self.model, self.size, self.smooth = model, size, smooth
         self.net = load(model)
@@ -185,7 +213,7 @@ class DepthWorker(threading.Thread):
             crops, lms, who = [], [], []
             for name, img, lm in (("phone", pimg, plm), ("mac", mimg, mlm)):
                 if img is not None and lm is not None:
-                    c, l = hand_crop(img, lm)
+                    c, l = hand_crop(img, lm, box=self.cams[name].crop_box(lm))
                     if c is not None:
                         crops.append(c)
                         lms.append(l)
@@ -196,12 +224,13 @@ class DepthWorker(threading.Thread):
             seen = set()
             for name, c, l, d in zip(who, crops, lms, deps):
                 self.cams[name].feed(off_wall_mm(d, l), self.smooth, t)
-                self.cams[name].tile = tile(c, d, l, (400, 300))
+                self.cams[name].tile = tile(c, d, l, (350, 262), self.cams[name].rng)
                 seen.add(name)
             for name, cam in self.cams.items():
                 if name not in seen:
                     cam.feed(None, self.smooth, t)
-                    cam.tile = None
+                    if not cam.seen:
+                        cam.tile = None
             now = time.time()
             self.fps = 0.8 * self.fps + 0.2 / max(1e-3, now - last)
             last = now
