@@ -62,6 +62,7 @@ def grab_display(did):
 class App:
     def __init__(self, a):
         self.a = a
+        self.click = a.click                             # "pinch" (thumb + index) or "touch" (finger on the wall)
         self.ds = displays()
         ext = [i for i, d in enumerate(self.ds) if not d["builtin"]]
         self.di = a.display if a.display is not None else (
@@ -89,7 +90,6 @@ class App:
         self.mac, self.Hm, self.mac_lm, self.mac_seen = None, None, None, 0
         self.crop, self.zoomed, self.calib_id = None, False, 0
         self.flock = replay.FingerLock()
-        self.click = a.click                             # "pinch" (thumb + index) or "touch" (finger on the wall)
         self.pcur = pinch.Cursor()
         self.side, self.Hside = bool(a.side), None       # side mode: Mac = position, phone (looking along the wall) = touch
         self.pinch_r = None
