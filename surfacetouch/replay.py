@@ -174,19 +174,25 @@ def run(base, finger="index", mac_lag=None, max_frames=None, log=print):
     lags = {}
     if have_mac:
         for lag in range(-8, 9):
-            d = [r["mac_d_n"] for r in build(lag) if r.get("mac_ok") and r["mode"] == "teach" and r["button"] and not r["ready"]]
+            d = [r["mac_d_n"] for r in build(lag) if r.get("mac_ok") and not r["ready"]
+                 and ((r["mode"] == "teach" and r["button"]) or r["cue"] in ("TOUCH", "HOLD"))]
             if len(d) > 20:
                 lags[lag] = round(float(np.median(d)), 3)
     rep["mac_lag_scan"] = lags
     best = mac_lag if mac_lag is not None else (min(lags, key=lags.get) if lags else 0)
     rep["mac_lag_frames"] = best
     rows = build(best)
-    teach_rows = [r for r in rows if r["mode"] == "teach"]
-    if teach_rows:
-        W = next(iter(calibs.values()))["W"]
-        H = next(iter(calibs.values()))["H"]
-        tr, _ = teach.analyse(teach_rows, W, H)
-        rep["teach"] = tr
+    W = next(iter(calibs.values()))["W"]
+    H = next(iter(calibs.values()))["H"]
+    for mode in ("teach", "validate"):
+        mr = [dict(r) for r in rows if r["mode"] == mode and (mode != "validate" or r["cue"] in ("TOUCH", "HOVER"))]
+        if not mr:
+            continue
+        if mode == "validate" or not any(r["button"] for r in mr):
+            teach.cue_labels(mr, W, H)                   # no button presses: instruction + stillness labels
+        rep[mode], _ = teach.analyse(mr, W, H)
+    if have_mac and "teach" not in rep and lags == {}:
+        rep["note"] = "Mac lag scan needs held touches with the Mac camera mapped"
     if rows:
         with open(base + "_replay_rows.csv", "w", newline="") as f:
             keys = list(dict.fromkeys(k for r in rows for k in r))

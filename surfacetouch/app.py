@@ -31,7 +31,7 @@ import viewer as V
 from touch3d import ARUCO, Pair
 from touchscreen import ax_ok, displays, key, mouse, tink
 
-from . import contact, maccam, record, shadow, teach, zoom
+from . import contact, maccam, record, replay, shadow, teach, zoom
 from .state import TouchStateMachine
 
 S.NUM_HANDS = 2
@@ -88,6 +88,7 @@ class App:
         self.frame_age = collections.deque(maxlen=60)
         self.mac, self.Hm, self.mac_lm, self.mac_seen = None, None, None, 0
         self.crop, self.zoomed, self.calib_id = None, False, 0
+        self.flock = replay.FingerLock()
         self.vrows = []
         self.load()
 
@@ -284,6 +285,8 @@ class App:
         pos = None
         if valid:
             lm = fr["lm_a"]
+            if not self.a.no_finger_lock:                # pointing finger, not whatever MediaPipe calls "index"
+                lm = replay.with_tip(lm, self.flock.tip(lm, now))
             gray = cv2.GaussianBlur(cv2.cvtColor(fr["a"], cv2.COLOR_BGR2GRAY).astype(np.float32), (3, 3), 0)
             if self.state == "live":
                 if self.ref is None:
@@ -444,6 +447,12 @@ class App:
     def teach_tick(self, now):
         self.t_button = teach.button_down()
         if self.t_arm < 2:                 # prove the button reaches the app: press once, release once, then start
+            if self.t_arm == 0 and now - self.t_state > 8 and not self.t_button:
+                self.t_arm, self.t_cue = 2, True             # no button: label from the cues + stillness
+                self.t_t = now
+                self.log("no button - labels come from the instructions (hold still!)", show=True)
+                tink()
+                return
             if self.t_arm == 0 and self.t_button:
                 self.t_arm = 1
             elif self.t_arm == 1 and not self.t_button:
@@ -468,6 +477,8 @@ class App:
                 w = csv.DictWriter(f, fieldnames=keys)
                 w.writeheader()
                 w.writerows(rows)
+        if self.t_cue:
+            teach.cue_labels(rows, self.W, self.H)
         rep, good = teach.analyse(rows, self.W, self.H, self.wall_mm_per_pt())
         if len({r["button"] for r in good}) == 2:
             self.model = contact.ContactModel().fit([contact.vec(r) for r in good], [bool(r["button"]) for r in good])
@@ -654,7 +665,8 @@ class App:
             put("Experiment T - teach the touch model", 30, 50, 0.8, (40, 40, 220))
             for i, t in enumerate(["Hold a mouse button (or Shift) in your OTHER hand exactly while your finger touches the wall.",
                                    "Release it the moment the finger leaves the wall. The button is the label - be honest.",
-                                   "PRESS AND RELEASE THE BUTTON ONCE NOW TO START" if self.t_arm == 0 else "...now release it"]):
+                                   ("PRESS AND RELEASE THE BUTTON ONCE NOW TO START  (no button? wait %d s: then just HOLD STILL "
+                                    "on each instruction)" % max(0, int(9 - (now - self.t_state)))) if self.t_arm == 0 else "...now release it"]):
                 put(t, 30, 100 + i * 34, 0.6, (40, 40, 40) if i < 2 else (40, 40, 220), 1 if i < 2 else 2)
             b = self.t_button
             cv2.rectangle(img, (cw - 230, 16), (cw - 20, 60), (40, 40, 220) if b else (200, 200, 200), -1)
@@ -782,7 +794,7 @@ class App:
             self.white_buf = []
         if st == "teach":
             self.tplan, self.ti, self.t_t, self.trows, self.t_button = teach.plan(), 0, time.time(), [], False
-            self.t_arm = 0
+            self.t_arm, self.t_cue = 0, False
         if st == "collect":
             self.plan, self.ci, self.c_t, self.rows = self.collect_plan(), 0, time.time(), []
         if st == "validate":
@@ -931,6 +943,7 @@ def main():
     ap.add_argument("--no-record", action="store_true", help="don't record session video")
     ap.add_argument("--zoom", action="store_true",
                     help="USB only: crop the phone sensor to the wall after the first calibration (./build_streamer.sh once)")
+    ap.add_argument("--no-finger-lock", action="store_true", help="use MediaPipe's index tip as is")
     ap.add_argument("--stream-size", default="960x720", help="phone stream size in --zoom mode")
     ap.add_argument("--phone-lag", type=float, default=0.06, help="phone frame delay vs Mac camera, s")
     a = ap.parse_args()

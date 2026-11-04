@@ -55,8 +55,49 @@ def plan():
     return out
 
 
+STILL_SPEED = 0.03          # wall widths per second: slower than this = holding still
+ON_DOT = 0.04               # of wall width: fingertip this close to the dot = on it
+NEAR_DOT = 0.08
+
+
+def cue_labels(rows, W, H):
+    """No button available: label from the instruction, kept only where the finger obeys it visibly.
+    touch  = TOUCH/HOLD instruction, fingertip still and on the dot (after the first 0.8 s of the cue)
+    none   = NEAR/HOVER/WAVE instruction, fingertip still near the target (WAVE: any tracked frame)
+    TAP frames and everything moving are dropped (ready=1). Sets 'button' to the derived label."""
+    by = {}
+    for r in rows:
+        by.setdefault((r.get("cue"), r.get("spot"), r.get("tx"), r.get("ty")), []).append(r)
+    for (cue, _, _, _), rs in by.items():
+        rs.sort(key=lambda r: r["t"])
+        t0 = rs[0]["t"]
+        for i, r in enumerate(rs):
+            r["label_src"] = "cue"
+            ok = r.get("tracked") == 1 and r.get("x") not in (None, "") and not r.get("ready")
+            if ok:
+                j = max(0, i - 4)
+                prev = rs[j]
+                dt = r["t"] - prev["t"]
+                still = (dt > 0 and prev.get("x") not in (None, "") and
+                         np.hypot(r["x"] - prev["x"], (r["y"] - prev["y"]) * H / W) / dt < STILL_SPEED)
+                d = np.hypot(r["x"] - r["tx"], (r["y"] - r["ty"]) * H / W)
+            if not ok:
+                r["ready"] = 1
+            elif cue in ("HOLD", "TOUCH") and r["t"] - t0 > 0.8 and still and d < ON_DOT:
+                r["button"] = 1
+            elif cue in ("NEAR", "HOVER") and still and d < NEAR_DOT:
+                r["button"] = 0
+            elif cue == "WAVE":
+                r["button"] = 0
+            else:
+                r["ready"] = 1
+    return rows
+
+
 def trim(rows):
     """Drop frames close to a button change; returns rows with a trustworthy 'touch' label."""
+    if rows and rows[0].get("label_src") == "cue":          # cue labels: already filtered by stillness
+        return [r for r in rows if not r["ready"] and r.get("tracked") == 1]
     t = np.array([r["t"] for r in rows])
     b = np.array([r["button"] for r in rows])
     ch = t[1:][b[1:] != b[:-1]]
@@ -73,7 +114,8 @@ def trim(rows):
 def analyse(rows, W, H, mm_per_pt=None):
     """rows: per-frame dicts (features + button + cue + spot + target + tip positions). -> report dict."""
     good = trim(rows)
-    rep = {"frames": len(rows), "frames_used": len(good),
+    rep = {"labels": "cue + stillness" if rows and rows[0].get("label_src") == "cue" else "button",
+           "frames": len(rows), "frames_used": len(good),
            "touch_frames": int(sum(r["button"] for r in good)), "no_touch_frames": int(sum(1 - r["button"] for r in good))}
     # honesty check: did the button match the cue?
     cues = {}
@@ -116,7 +158,7 @@ def analyse(rows, W, H, mm_per_pt=None):
                                           for c, _, _ in CUES if any(cc == c for _, cc, _ in pred)}
     # tracking: which landmark lands on the dot while touching (HOLD frames, button down, still)
     rep["tracking"] = {}
-    hold = [r for r in good if r["button"] and r["cue"] == "HOLD"]
+    hold = [r for r in good if r["button"] and r["cue"] in ("HOLD", "TOUCH")]
     unit = (mm_per_pt, "mm") if mm_per_pt else (100.0 / W, "% of width")
     for cam in ("phone", "mac"):
         errs = {name: [] for name in TIPS.values()}
