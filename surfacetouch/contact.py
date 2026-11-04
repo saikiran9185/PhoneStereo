@@ -9,7 +9,8 @@ import json
 
 import numpy as np
 
-FEATURES = ["sep_n", "gap_n", "along_n", "near_n", "found", "area_n", "dx_n", "dy_n", "parallax_v", "parallax_y", "parallax_ok"]
+FEATURES = ["sep_n", "gap_n", "along_n", "near_n", "found", "area_n", "dx_n", "dy_n", "parallax_v", "parallax_y", "parallax_ok",
+            "mac_d_n", "mac_dx_n", "mac_dy_n", "mac_ok"]
 
 
 def vec(f):
@@ -17,6 +18,8 @@ def vec(f):
 
 
 def heuristic(f):
+    if f.get("mac_ok"):                     # two wide viewpoints agree on the wall point = contact
+        return float(1 / (1 + np.exp(-(0.45 - f["mac_d_n"]) / 0.1)))
     if not f.get("found"):
         return 0.5
     return float(1 / (1 + np.exp(-(0.12 - f["sep_n"]) / 0.04)))      # shadow attached to the finger = contact
@@ -70,8 +73,8 @@ class ContactModel:
 
     @classmethod
     def from_json(cls, d):
-        if not d or d.get("w") is None:
-            return cls()
+        if not d or d.get("w") is None or d.get("features") != FEATURES:
+            return cls()                    # untrained, or trained on another feature set
         return cls(np.array(d["w"]), d["b"], np.array(d["mu"]), np.array(d["sd"]), d.get("info"), d.get("thr", 0.5))
 
 

@@ -93,6 +93,7 @@ class Pair(threading.Thread):
         self.Hp = None
         self.n = 0
         self.proc = collections.deque(maxlen=90)
+        self.roi = [None, None]     # per lens (x0, y0, x1, y1): track the hand inside this crop (bigger hand, better landmarks)
 
     def run(self):
         from concurrent.futures import ThreadPoolExecutor
@@ -133,9 +134,19 @@ class Pair(threading.Thread):
                 imgs.append(im)
 
             def det(k):
-                small = S.resize_w(imgs[k], S.PW)
                 ms[k] = max(ms[k] + 1, f0["ts"] // 1_000_000)
-                return S.detect(trs[k], small, ms[k])
+                r = self.roi[k]
+                if r is None:
+                    small = S.resize_w(imgs[k], S.PW)
+                    return S.detect(trs[k], small, ms[k])
+                x0, y0, x1, y1 = r                       # crop, at most 960 px wide, then back to full-frame coords
+                crop = imgs[k][y0:y1, x0:x1]
+                sc = min(1.0, 960 / max(1, crop.shape[1]))
+                d = S.detect(trs[k], crop if sc == 1.0 else cv2.resize(crop, None, fx=sc, fy=sc, interpolation=cv2.INTER_AREA), ms[k])
+                if d:
+                    H_, W_ = imgs[k].shape[:2]
+                    d["lms"] = [((x0 + u * (x1 - x0)) / W_, (y0 + v * (y1 - y0)) / H_) for u, v in d["lms"]]
+                return d
 
             da, db = [j.result() for j in [pool.submit(det, 0), pool.submit(det, 1)]]
             out = {"t": time.time(), "t_recv": f0["t_recv"], "a": imgs[0], "b": imgs[1],

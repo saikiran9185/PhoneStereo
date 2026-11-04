@@ -111,3 +111,52 @@ def test_click_vs_drag():
         t += 0.033
     names = [e["event"] for e in ev]
     assert "TOUCH_UP" in names and "CLICK" not in names and sm.state == state.HOVER
+
+
+def test_mac_two_view_split():
+    """Finger on the wall: both views map the tip to the same wall point. Hover: they split apart."""
+    import numpy as np
+    from surfacetouch import maccam
+    lm = np.zeros((21, 2), np.float32)
+    lm[6], lm[8] = (100, 140), (100, 100)          # PIP and tip, 40 px finger
+    I = np.eye(3)
+    on, _ = maccam.features(lm, I, [lm.copy()], I, 1000)
+    hov = lm.copy(); hov[:, 0] += 30
+    off, _ = maccam.features(lm, I, [hov], I, 1000)
+    assert on["mac_ok"] == 1 and on["mac_d_n"] < 0.05
+    assert off["mac_d_n"] > 0.7
+    from surfacetouch import contact
+    assert contact.heuristic({**on, "found": 0}) > 0.9 > 0.1 > contact.heuristic({**off, "found": 0})
+    none, _ = maccam.features(lm, I, None, I, 1000)
+    assert none["mac_ok"] == 0
+
+
+def test_teach_labels_and_tracking():
+    """Button = label; frames near a button change are dropped; tracking finds which tip lands on the dot."""
+    import numpy as np
+    from surfacetouch import teach
+    rng = np.random.default_rng(0)
+    rows, t = [], 0.0
+    W, H = 1000, 600
+    for spot in range(4):
+        tx, ty = 0.2 + 0.2 * spot, 0.5
+        for cue, touching in (("HOLD", 1), ("NEAR", 0), ("TAP", None), ("WAVE", 0)):
+            for k in range(60):
+                t += 0.05
+                b = touching if touching is not None else int((k // 10) % 2 == 0)
+                d = 0.05 + 0.03 * rng.random() if b else 0.6 + 0.4 * rng.random()
+                # the tracker puts the THUMB on the dot (confusion), index 30 px away
+                r = {"t": t, "spot": spot, "cue": cue, "ready": int(k < 5), "tx": tx, "ty": ty, "button": b,
+                     "tracked": 1, "mac_ok": 1, "mac_d_n": d, "found": 0, "parallax_ok": 0,
+                     "sep_n": 3, "gap_n": 3, "parallax_v": 0, "area_n": 0}
+                for cam in ("phone", "mac"):
+                    r[f"{cam}_thumb_x"], r[f"{cam}_thumb_y"] = tx * W, ty * H
+                    r[f"{cam}_index_x"], r[f"{cam}_index_y"] = tx * W + 30, ty * H
+                    r[f"{cam}_middle_x"], r[f"{cam}_middle_y"] = tx * W + 50, ty * H
+                rows.append(r)
+    rep, good = teach.analyse(rows, W, H)
+    assert len(good) < len(rows)                                  # ready + reaction-time frames dropped
+    assert rep["single_feature_auc"]["mac_d_n"]["auc"] > 0.99
+    assert rep["cv_auc"] > 0.95
+    assert rep["tracking"]["phone"]["closest_to_dot_pct"]["thumb"] == 100.0
+    assert rep["button_held_pct_by_cue"]["HOLD"] == 100.0 and rep["button_held_pct_by_cue"]["NEAR"] == 0.0

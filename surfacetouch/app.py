@@ -1,7 +1,8 @@
 """SurfaceTouch V1 - projector wall touch from one phone (main + ultra-wide) on a Mac.
 
 Wizard (projected full screen):  PLACE -> MARKERS (camera->projector mapping) -> WHITE (photometric reference) -> MENU
-MENU:  E  Experiment A: touch vs hover at 0/10/20/30/50 mm, 6 wall positions -> trains the contact model
+MENU:  E  Experiment T (Teach): you hold a mouse button / Shift while touching -> exact labels -> trains the model
+       A  old Experiment A: touch vs hover at 0/10/20/30/50 mm (labels depend on guessing heights)
        V  Experiment B: 5x5 touch accuracy grid + hover traps -> error, misses, false touches
        D  Demo wall: buttons, drawing, drag a card, slider (Experiment C)
        L  Live: touches drive the Mac mouse (Keynote / PowerPoint / browser); flick = next / previous slide
@@ -30,7 +31,7 @@ import viewer as V
 from touch3d import ARUCO, Pair
 from touchscreen import ax_ok, displays, key, mouse, tink
 
-from . import contact, shadow
+from . import contact, maccam, shadow, teach
 from .state import TouchStateMachine
 
 S.NUM_HANDS = 2
@@ -85,6 +86,8 @@ class App:
         self.no_hand_since = None
         self.demo = {"color": (40, 40, 220), "strokes": [], "card": [0.62, 0.45], "slider": 0.5, "drag": None}
         self.frame_age = collections.deque(maxlen=60)
+        self.mac, self.Hm, self.mac_lm, self.mac_seen = None, None, None, 0
+        self.vrows = []
         self.load()
 
     # ---- display + calibration persistence
@@ -156,6 +159,25 @@ class App:
             self.pair.Hp = Hp
         err = np.linalg.norm(cv2.perspectiveTransform(A[None], Hs)[0] - Sc, axis=1)
         self.cal_info = {"markers_main": len(ids), "markers_both": len(both), "fit_pt_median": round(float(np.median(err)), 2)}
+        self.Hm = None
+        mf = self.mac.latest() if self.mac else None
+        if mf is not None:
+            mm = self.find(mf)
+            mids = [i for i in mm if i in lay]
+            self.mac_seen = len(mids)
+            if len(mids) >= 4:
+                M = np.concatenate([mm[i] for i in mids]).astype(np.float32)
+                Sm = np.concatenate([lay[i] for i in mids]).astype(np.float32)
+                Hm, _ = cv2.findHomography(M, Sm, cv2.RANSAC, 4.0)
+                if Hm is not None:
+                    self.Hm = Hm
+                    e2 = np.linalg.norm(cv2.perspectiveTransform(M[None], Hm)[0] - Sm, axis=1)
+                    self.cal_info.update(markers_mac=len(mids), fit_mac_pt_median=round(float(np.median(e2)), 2))
+            if self.Hm is None:
+                self.log(f"Mac camera sees {len(mids)} of 15 markers: turn the laptop so its camera sees the wall "
+                         "(phone-only for now)", show=True)
+            else:
+                self.log(f"Mac camera: {len(mids)} markers, fit {self.cal_info['fit_mac_pt_median']} pt", show=True)
         self.log(f"wall found: {len(ids)} markers (both lenses {len(both)}), fit {self.cal_info['fit_pt_median']} pt", show=True)
         tink()
         self.go("white")
@@ -174,15 +196,29 @@ class App:
         if len(self.white_buf) >= 8:
             self.white = np.median(self.white_buf, 0).astype(np.float32)
             np.save(os.path.join(CONF_DIR, "surfacetouch_white.npy"), self.white)
-            self.save(Hs=self.Hs.tolist(), Hp=None if self.pair.Hp is None else self.pair.Hp.tolist(),
+            self.save(Hm=None if self.Hm is None else self.Hm.tolist(), Hs=self.Hs.tolist(), Hp=None if self.pair.Hp is None else self.pair.Hp.tolist(),
                       turn=self.pair.turn, calib=self.cal_info, white_mean=round(float(self.white.mean()), 1),
                       time=datetime.datetime.now().isoformat(timespec="seconds"))
             self.log(f"photometric reference saved (wall brightness {self.white.mean():.0f}/255)", show=True)
             if self.white.mean() > 245:
                 self.log("the wall is over-exposed in the camera: dim the room lights or lower projector brightness",
                          show=True)
+            self.set_rois(fr)
             tink()
             self.go("menu")
+
+    def set_rois(self, fr):
+        """Track hands only inside the wall area of each camera: the hand appears bigger to the tracker."""
+        self.pair.roi[0] = maccam.wall_roi(self.Hs, self.W, self.H, fr["a"].shape)
+        if self.pair.Hp is not None:
+            Hb = self.pair.Hp @ np.eye(3)                       # ultra-wide -> main; wall = Hs @ Hp
+            self.pair.roi[1] = maccam.wall_roi(self.Hs @ Hb, self.W, self.H, fr["b"].shape)
+        if self.mac and self.Hm is not None:
+            mf = self.mac.latest()
+            if mf is not None:
+                self.mac.roi = maccam.wall_roi(self.Hm, self.W, self.H, mf.shape)
+        self.log(f"tracking crops: phone {self.pair.roi[0]}, wide {self.pair.roi[1]}, "
+                 f"mac {self.mac.roi if self.mac else None}")
 
     # ---- per frame: features -> probability -> state machine -> events
     def expected_image(self, shape, t_cap):
@@ -217,6 +253,9 @@ class App:
             f["parallax_ok"] = int(sh is not None and (fr.get("score") or 0) > 0.5)
             f["parallax_v"] = float(sh[0]) if f["parallax_ok"] else 0.0
             f["parallax_y"] = float(sh[1]) if f["parallax_ok"] else 0.0
+            mh = self.mac.hands_at(fr["t_recv"] - self.a.phone_lag) if (self.mac and self.Hm is not None) else None
+            mf, self.mac_lm = maccam.features(lm, self.Hs, mh, self.Hm, self.W)
+            f.update(mf)
             self.feat, self.dbg = f, d
             s = cv2.perspectiveTransform(np.array([[lm[8]]], np.float32), self.Hs)[0, 0]
             pos = (float(s[0] / self.W), float(s[1] / self.H))
@@ -240,6 +279,13 @@ class App:
             self.on_event(e, now)
         if self.state == "collect":
             self.collect_record(fr, now, pos)
+        if self.state == "teach":
+            self.teach_record(fr, now, pos, valid)
+        if self.state == "validate" and self.feat is not None and self.vi < len(self.vplan):
+            kind, (tx, ty) = self.vplan[self.vi]
+            self.vrows.append({"t": round(now - self.t_state, 3), "task": self.vi, "kind": kind, "tx": tx, "ty": ty,
+                               "x": None if pos is None else round(pos[0], 4), "y": None if pos is None else round(pos[1], 4),
+                               "p": round(self.p, 3), "state": self.sm.state, **self.feat})
 
     # ---- events -> modes
     def on_event(self, e, now):
@@ -322,6 +368,7 @@ class App:
             self.save(model=self.model.to_json())
             rep["weights"] = dict(zip(contact.FEATURES, np.round(self.model.w, 2).tolist()))
             rep["touch_threshold"] = round(self.model.thr, 2)
+        rep["mac_camera"] = self.Hm is not None
         if rows:
             with open(self.base + "_samples.csv", "w", newline="") as f:
                 w = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
@@ -332,6 +379,66 @@ class App:
             f.write(json.dumps({"kind": "surface_expA", "time": os.path.basename(self.base), **rep}) + "\n")
         self.results["A"] = rep
         self.log("EXPERIMENT A " + json.dumps(rep), show=True)
+        self.go("menu")
+
+    # ---- Experiment T: button-labelled touch / no-touch (see teach.py)
+    def teach_record(self, fr, now, pos, valid):
+        if self.ti >= len(self.tplan) or self.t_arm < 2:
+            return
+        c = self.tplan[self.ti]
+        el = now - self.t_t
+        r = {"t": round(now - self.t_state, 3), "spot": c["spot"], "cue": c["cue"], "ready": int(el < teach.READY),
+             "tx": round(c["xy"][0], 4), "ty": round(c["xy"][1], 4), "button": int(teach.button_down()),
+             "tracked": int(bool(valid and self.feat is not None)),
+             "x": None if pos is None else round(pos[0], 4), "y": None if pos is None else round(pos[1], 4),
+             "p_live": round(self.p, 3)}
+        if self.feat is not None:
+            r.update(self.feat)
+            for cam, lm, H in (("phone", fr["lm_a"], self.Hs), ("mac", self.mac_lm, self.Hm)):
+                for i, (x, y) in maccam.wall_points(lm, H).items():
+                    r[f"{cam}_{teach.TIPS[i]}_x"], r[f"{cam}_{teach.TIPS[i]}_y"] = round(x, 1), round(y, 1)
+        self.trows.append(r)
+
+    def teach_tick(self, now):
+        self.t_button = teach.button_down()
+        if self.t_arm < 2:                 # prove the button reaches the app: press once, release once, then start
+            if self.t_arm == 0 and self.t_button:
+                self.t_arm = 1
+            elif self.t_arm == 1 and not self.t_button:
+                self.t_arm = 2
+                self.t_t = now
+                self.log("button works - starting", show=True)
+                tink()
+            return
+        if self.ti < len(self.tplan) and now - self.t_t >= teach.READY + self.tplan[self.ti]["dur"]:
+            self.ti += 1
+            self.t_t = now
+            if self.ti < len(self.tplan):
+                tink()
+        if self.ti >= len(self.tplan) and self.state == "teach":
+            self.finish_teach()
+
+    def finish_teach(self):
+        rows = self.trows
+        if rows:
+            keys = list(dict.fromkeys(k for r in rows for k in r))
+            with open(self.base + "_teach_samples.csv", "w", newline="") as f:
+                w = csv.DictWriter(f, fieldnames=keys)
+                w.writeheader()
+                w.writerows(rows)
+        rep, good = teach.analyse(rows, self.W, self.H, self.wall_mm_per_pt())
+        if len({r["button"] for r in good}) == 2:
+            self.model = contact.ContactModel().fit([contact.vec(r) for r in good], [bool(r["button"]) for r in good])
+            self.model.info = {"trained_on": len(good), "session": os.path.basename(self.base), "labels": "button", "cv": rep}
+            self.save(model=self.model.to_json())
+            rep["weights"] = dict(zip(contact.FEATURES, np.round(self.model.w, 2).tolist()))
+            rep["touch_threshold"] = round(self.model.thr, 2)
+        rep["mac_camera"] = self.Hm is not None
+        json.dump(rep, open(self.base + "_teach.json", "w"), indent=2)
+        with open(os.path.join(V.LOG_DIR, "research_sessions.jsonl"), "a") as f:
+            f.write(json.dumps({"kind": "surface_teach", "time": os.path.basename(self.base), **rep}) + "\n")
+        self.results["T"] = {k: rep.get(k) for k in ("cv_auc", "precision_pct", "recall_pct", "button_held_pct_by_cue")}
+        self.log("EXPERIMENT T " + json.dumps(rep), show=True)
         self.go("menu")
 
     # ---- Experiment B: accuracy grid + hover traps
@@ -396,11 +503,17 @@ class App:
                                                                   "max": round(float(e.max()) * mmpp, 1)},
                "latency_ms_estimate": round(1000 * self.sm_cand_latency()) if self.sm_cand_latency() else None,
                "phone_fps": round(self.pair.rx.fps(0), 1),
-               "model": "trained" if self.model.trained else "shadow-gap rule (untrained)"}
+               "model": "trained" if self.model.trained else "untrained rule"}
         with open(self.base + "_expB.csv", "w", newline="") as f:
             w = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
             w.writeheader()
             w.writerows(rows)
+        if self.vrows:
+            with open(self.base + "_expB_samples.csv", "w", newline="") as f:
+                w = csv.DictWriter(f, fieldnames=list(self.vrows[0].keys()))
+                w.writeheader()
+                w.writerows(self.vrows)
+        rep["mac_camera"] = self.Hm is not None
         json.dump(rep, open(self.base + "_expB.json", "w"), indent=2)
         with open(os.path.join(V.LOG_DIR, "research_sessions.jsonl"), "a") as f:
             f.write(json.dumps({"kind": "surface_expB", "time": os.path.basename(self.base), **rep}) + "\n")
@@ -475,9 +588,9 @@ class App:
         elif st == "white":
             img[:] = 255
         elif st == "menu":
-            put("SurfaceTouch ready" + ("   (contact model trained)" if self.model.trained else "   (untrained: shadow-gap rule)"),
+            put("SurfaceTouch ready" + ("   (contact model trained)" if self.model.trained else "   (untrained: press E first to train)"),
                 30, 50, 0.8, (30, 120, 30))
-            put("E  Experiment A: touch vs hover (train)     V  Experiment B: accuracy grid", 30, 95)
+            put("E  Experiment T: teach (hold mouse button / Shift while touching)    V  Experiment B: accuracy grid", 30, 95)
             put("D  Demo wall: buttons, draw, drag, slider    L  Live: control slides     C  recalibrate   Q  quit", 30, 125)
             put("Touch anywhere to try: the ring shows the touch engine.", 30, 165, 0.5, (90, 90, 90), 1)
             y = 210
@@ -495,6 +608,30 @@ class App:
             put(f"A {self.ci + 1}/{len(self.plan)}: {txt}", 30, 40, 0.7, (40, 40, 220) if rec else (20, 120, 200))
             put("RECORDING - hold still" if rec else "get into position...", 30, 72, 0.6, (40, 40, 40), 1)
             cv2.rectangle(img, (0, ch - 8), (int(cw * min(1, el / (READY_S + RECORD_S))), ch), (40, 40, 220), -1)
+        elif st == "teach" and self.t_arm < 2:
+            put("Experiment T - teach the touch model", 30, 50, 0.8, (40, 40, 220))
+            for i, t in enumerate(["Hold a mouse button (or Shift) in your OTHER hand exactly while your finger touches the wall.",
+                                   "Release it the moment the finger leaves the wall. The button is the label - be honest.",
+                                   "PRESS AND RELEASE THE BUTTON ONCE NOW TO START" if self.t_arm == 0 else "...now release it"]):
+                put(t, 30, 100 + i * 34, 0.6, (40, 40, 40) if i < 2 else (40, 40, 220), 1 if i < 2 else 2)
+            b = self.t_button
+            cv2.rectangle(img, (cw - 230, 16), (cw - 20, 60), (40, 40, 220) if b else (200, 200, 200), -1)
+        elif st == "teach" and self.ti < len(self.tplan):
+            c = self.tplan[self.ti]
+            x, y = c["xy"]
+            el = now - self.t_t
+            rec = el >= teach.READY
+            col = {"HOLD": (40, 40, 220), "TAP": (40, 40, 220), "NEAR": (30, 140, 230), "WAVE": (30, 140, 230)}[c["cue"]]
+            if c["cue"] in ("HOLD", "TAP"):
+                cv2.circle(img, P(x, y), 14, col, -1, cv2.LINE_AA)
+            else:
+                cv2.circle(img, P(x, y), 24, col, 3, cv2.LINE_AA)
+            put(f"T {self.ti + 1}/{len(self.tplan)}  {c['cue']}: {c['text']}", 30, 40, 0.62, col)
+            put("go" if rec else "get ready...", 30, 72, 0.6, (40, 40, 40), 1)
+            b = self.t_button
+            cv2.rectangle(img, (cw - 230, 16), (cw - 20, 60), (40, 40, 220) if b else (200, 200, 200), -1)
+            put("BUTTON: TOUCHING" if b else "button: not touching", cw - 222, 45, 0.5, (255, 255, 255) if b else (60, 60, 60), 1)
+            cv2.rectangle(img, (0, ch - 8), (int(cw * min(1, el / (teach.READY + c["dur"]))), ch), col, -1)
         elif st == "validate" and self.vi < len(self.vplan):
             kind, (x, y) = self.vplan[self.vi]
             if kind == "TOUCH":
@@ -530,7 +667,7 @@ class App:
 
     # ---- diagnostics window (Mac screen)
     def diag(self, fr):
-        D = np.full((620, 980, 3), (32, 16, 11), np.uint8)
+        D = np.full((900, 980, 3), (32, 16, 11), np.uint8)
         put = lambda t, x, y, sc=0.5, c=(230, 230, 230), th=1: cv2.putText(D, t, (int(x), int(y)),
                                                                             cv2.FONT_HERSHEY_SIMPLEX, sc, c, th, cv2.LINE_AA)
         if fr is not None:
@@ -558,9 +695,9 @@ class App:
         f = self.feat or {}
         x0 = 310
         lines = [f"state  {self.sm.state}     mode {self.state}",
-                 f"contact p  {self.p:.2f}   ({'model' if self.model.trained else 'gap rule'})",
+                 f"contact p  {self.p:.2f}   ({'model' if self.model.trained else 'rule'})",
                  f"shadow found {f.get('found', '-')}   gap {f.get('gap_n', '-')}   nearest {f.get('near_n', '-')} (finger lengths)",
-                 f"stereo shift {f.get('parallax_v', '-') if f.get('parallax_ok') else '-'} px",
+                 f"stereo shift {f.get('parallax_v', '-') if f.get('parallax_ok') else '-'} px   sep {f.get('sep_n', '-')}",
                  f"fps {self.pair.rx.fps(0):.0f}   frame age {1000 * np.median(self.frame_age):.0f} ms" if self.frame_age else "fps -",
                  f"false touches (live/demo) {self.false_touches}"]
         for i, t in enumerate(lines):
@@ -573,6 +710,22 @@ class App:
         put("contact probability", bx, by + 46)
         if self.pair.error:
             put("phone: " + self.pair.error, 10, 610, 0.55, (60, 60, 230), 2)
+        if self.mac:
+            mf = self.mac.latest()
+            if mf is not None:
+                if self.mac_lm is not None:
+                    for p_ in self.mac_lm.astype(int):
+                        cv2.circle(mf, tuple(p_), 3, (0, 220, 255), -1)
+                    cv2.circle(mf, tuple(self.mac_lm[8].astype(int)), 9, (60, 220, 60), 2)
+                v = cv2.resize(mf, (420, int(420 * mf.shape[0] / mf.shape[1])))[:250]
+                D[640:640 + v.shape[0], 10:10 + v.shape[1]] = v
+            st = (f"wall mapped ({self.cal_info.get('markers_mac', 0)} markers)" if self.Hm is not None and hasattr(self, "cal_info")
+                  else "wall mapped" if self.Hm is not None else "not mapped yet (calibrate with SPACE / C)")
+            put(f"Mac camera  {self.mac.fps:.0f} fps  {st}", 10, 632)
+            if self.mac.error:
+                put(self.mac.error, 450, 680, 0.5, (60, 60, 230), 2)
+            put(f"two-view split  {f.get('mac_d_n', '-') if f.get('mac_ok') else '-'}  finger lengths", 450, 720, 0.55)
+            put("(small = finger on the wall, grows with hover)", 450, 748, 0.5, (160, 160, 160))
         return D
 
     # ---- states
@@ -585,11 +738,15 @@ class App:
         self.sm = self.new_sm()
         if st == "white":
             self.white_buf = []
+        if st == "teach":
+            self.tplan, self.ti, self.t_t, self.trows, self.t_button = teach.plan(), 0, time.time(), [], False
+            self.t_arm = 0
         if st == "collect":
             self.plan, self.ci, self.c_t, self.rows = self.collect_plan(), 0, time.time(), []
         if st == "validate":
             self.vplan, self.vi, self.v_t, self.v_done = self.validate_plan(), 0, time.time(), None
             self.vdowns = collections.defaultdict(list)
+            self.vrows = []
         if st == "live":
             self.ref = None
         self.log(f"-> {st}")
@@ -605,6 +762,11 @@ class App:
         turn = (self.saved or {}).get("turn", self.a.turn)
         self.pair = Pair(self.log, self.a.host, self.a.token, turn, boost=False)
         self.pair.start()
+        if not self.a.no_mac:
+            self.mac = maccam.MacCam(self.a.mac_cam, self.log)
+            self.mac.start()
+            if self.saved and self.saved.get("Hm"):
+                self.Hm = np.array(self.saved["Hm"])
         self.log(f"projector display {self.di}: {self.W:.0f}x{self.H:.0f}")
         cv2.namedWindow(DIAG, cv2.WINDOW_AUTOSIZE)
         o = self.others[0] if self.others else self.disp
@@ -627,6 +789,8 @@ class App:
                     self.collect_tick(now)
                 if self.state == "validate":
                     self.validate_tick(now)
+                if self.state == "teach":
+                    self.teach_tick(now)
                 if self.state == "live":
                     if full:
                         cv2.destroyWindow(WIN)
@@ -656,6 +820,8 @@ class App:
                     self.go("markers")
                 if self.state == "menu":
                     if k == ord("e"):
+                        self.go("teach")
+                    if k == ord("a"):
                         self.go("collect")
                     if k == ord("v"):
                         self.go("validate")
@@ -666,7 +832,7 @@ class App:
                             self.log("Live needs Accessibility for PhoneStereo (System Settings > Privacy & Security)",
                                      show=True)
                         self.go("live")
-                elif self.state in ("demo", "live", "collect", "validate") and k == ord("m"):
+                elif self.state in ("demo", "live", "collect", "validate", "teach") and k == ord("m"):
                     self.go("menu")
         except Exception:
             self.log("CRASH " + traceback.format_exc().replace("\n", " | "), show=True)
@@ -674,6 +840,8 @@ class App:
         finally:
             self.pair.running = False
             self.pair.rx.running = False
+            if self.mac:
+                self.mac.running = False
             cv2.destroyAllWindows()
 
 
@@ -684,5 +852,8 @@ def main():
     ap.add_argument("--display", type=int, help="display index for the projector (N cycles in setup)")
     ap.add_argument("--turn", type=int, default=0)
     ap.add_argument("--wall-cm", type=float, help="width of the projected image in cm (for errors in mm)")
+    ap.add_argument("--mac-cam", type=int, default=0, help="Mac camera index (second viewpoint of the wall)")
+    ap.add_argument("--no-mac", action="store_true", help="phone cameras only")
+    ap.add_argument("--phone-lag", type=float, default=0.06, help="phone frame delay vs Mac camera, s")
     a = ap.parse_args()
     App(a).run()
