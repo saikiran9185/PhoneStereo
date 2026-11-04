@@ -31,7 +31,7 @@ import viewer as V
 from touch3d import ARUCO, Pair
 from touchscreen import ax_ok, displays, key, mouse, tink
 
-from . import contact, maccam, record, replay, shadow, teach, zoom
+from . import contact, depthtest, maccam, record, replay, shadow, teach, zoom
 from .state import TouchStateMachine
 
 S.NUM_HANDS = 2
@@ -432,13 +432,17 @@ class App:
             return
         c = self.tplan[self.ti]
         el = now - self.t_t
-        r = {"t": round(now - self.t_state, 3), "spot": c["spot"], "cue": c["cue"], "ready": int(el < teach.READY),
+        r = {"t": round(now - self.t_state, 3), "spot": c["spot"], "cue": c["cue"], "ready": int(el < c.get("ready_s", teach.READY)),
              "tx": round(c["xy"][0], 4), "ty": round(c["xy"][1], 4), "button": int(teach.button_down()),
              "tracked": int(bool(valid and self.feat is not None)),
              "x": None if pos is None else round(pos[0], 4), "y": None if pos is None else round(pos[1], 4),
              "p_live": round(self.p, 3)}
         if self.feat is not None:
             r.update(self.feat)
+            la = fr["lm_a"]
+            r["palm_phone"] = round(float(np.linalg.norm(la[9] - la[0])), 2)
+            if self.mac_lm is not None:
+                r["palm_mac"] = round(float(np.linalg.norm(self.mac_lm[9] - self.mac_lm[0])), 2)
             for cam, lm, H in (("phone", fr["lm_a"], self.Hs), ("mac", self.mac_lm, self.Hm)):
                 for i, (x, y) in maccam.wall_points(lm, H).items():
                     r[f"{cam}_{teach.TIPS[i]}_x"], r[f"{cam}_{teach.TIPS[i]}_y"] = round(x, 1), round(y, 1)
@@ -461,7 +465,7 @@ class App:
                 self.log("button works - starting", show=True)
                 tink()
             return
-        if self.ti < len(self.tplan) and now - self.t_t >= teach.READY + self.tplan[self.ti]["dur"]:
+        if self.ti < len(self.tplan) and now - self.t_t >= self.tplan[self.ti].get("ready_s", teach.READY) + self.tplan[self.ti]["dur"]:
             self.ti += 1
             self.t_t = now
             if self.ti < len(self.tplan):
@@ -471,6 +475,8 @@ class App:
 
     def finish_teach(self):
         rows = self.trows
+        if self.t_kind == "depth":
+            return self.finish_depth(rows)
         if rows:
             keys = list(dict.fromkeys(k for r in rows for k in r))
             with open(self.base + "_teach_samples.csv", "w", newline="") as f:
@@ -492,6 +498,24 @@ class App:
             f.write(json.dumps({"kind": "surface_teach", "time": os.path.basename(self.base), **rep}) + "\n")
         self.results["T"] = {k: rep.get(k) for k in ("cv_auc", "precision_pct", "recall_pct", "button_held_pct_by_cue")}
         self.log("EXPERIMENT T " + json.dumps(rep), show=True)
+        self.go("menu")
+
+    def finish_depth(self, rows):
+        if rows:
+            keys = list(dict.fromkeys(k for r in rows for k in r))
+            with open(self.base + "_depth_samples.csv", "w", newline="") as f:
+                w = csv.DictWriter(f, fieldnames=keys)
+                w.writeheader()
+                w.writerows(rows)
+        rep, _ = depthtest.analyse(rows, self.W, self.H)
+        rep["mac_camera"] = self.Hm is not None
+        rep["zoom"] = zoom.zoom_factor(self.crop)
+        json.dump(rep, open(self.base + "_depth.json", "w"), indent=2)
+        with open(os.path.join(V.LOG_DIR, "research_sessions.jsonl"), "a") as f:
+            f.write(json.dumps({"kind": "surface_depth", "time": os.path.basename(self.base), **rep}) + "\n")
+        self.results["H"] = {"best": rep.get("best_signal"),
+                             "rank": {k: v.get("rank_corr") for k, v in rep["signals"].items()}}
+        self.log("EXPERIMENT H " + json.dumps(rep), show=True)
         self.go("menu")
 
     # ---- Experiment B: accuracy grid + hover traps
@@ -645,7 +669,8 @@ class App:
                 30, 50, 0.8, (30, 120, 30))
             put("E  Experiment T: teach (hold mouse button / Shift while touching)    V  Experiment B: accuracy grid", 30, 95)
             put("D  Demo wall: buttons, draw, drag, slider    L  Live: control slides     C  recalibrate   Q  quit", 30, 125)
-            put("Touch anywhere to try: the ring shows the touch engine.", 30, 165, 0.5, (90, 90, 90), 1)
+            put("H  Experiment H: hand depth - fingertip at 0 / 5 / 10 / 20 / 40 cm from the wall", 30, 155)
+            put("Touch anywhere to try: the ring shows the touch engine.", 30, 185, 0.5, (90, 90, 90), 1)
             y = 210
             for k_, rep in self.results.items():
                 txt = json.dumps(rep)[:150]
@@ -674,18 +699,20 @@ class App:
             c = self.tplan[self.ti]
             x, y = c["xy"]
             el = now - self.t_t
-            rec = el >= teach.READY
-            col = {"HOLD": (40, 40, 220), "TAP": (40, 40, 220), "NEAR": (30, 140, 230), "WAVE": (30, 140, 230)}[c["cue"]]
+            rec = el >= c.get("ready_s", teach.READY)
+            col = {"HOLD": (40, 40, 220), "TAP": (40, 40, 220), "D0": (40, 40, 220)}.get(c["cue"], (30, 140, 230))
             if c["cue"] in ("HOLD", "TAP"):
                 cv2.circle(img, P(x, y), 14, col, -1, cv2.LINE_AA)
             else:
                 cv2.circle(img, P(x, y), 24, col, 3, cv2.LINE_AA)
-            put(f"T {self.ti + 1}/{len(self.tplan)}  {c['cue']}: {c['text']}", 30, 40, 0.62, col)
+            put(f"{'H' if self.t_kind == 'depth' else 'T'} {self.ti + 1}/{len(self.tplan)}  {c['cue']}: {c['text']}", 30, 40, 0.62, col)
             put("go" if rec else "get ready...", 30, 72, 0.6, (40, 40, 40), 1)
             b = self.t_button
-            cv2.rectangle(img, (cw - 230, 16), (cw - 20, 60), (40, 40, 220) if b else (200, 200, 200), -1)
-            put("BUTTON: TOUCHING" if b else "button: not touching", cw - 222, 45, 0.5, (255, 255, 255) if b else (60, 60, 60), 1)
-            cv2.rectangle(img, (0, ch - 8), (int(cw * min(1, el / (teach.READY + c["dur"]))), ch), col, -1)
+            if self.t_kind != "depth":
+                cv2.rectangle(img, (cw - 230, 16), (cw - 20, 60), (40, 40, 220) if b else (200, 200, 200), -1)
+                put("BUTTON: TOUCHING" if b else "button: not touching", cw - 222, 45, 0.5,
+                    (255, 255, 255) if b else (60, 60, 60), 1)
+            cv2.rectangle(img, (0, ch - 8), (int(cw * min(1, el / (c.get("ready_s", teach.READY) + c["dur"]))), ch), col, -1)
         elif st == "validate" and self.vi < len(self.vplan):
             kind, (x, y) = self.vplan[self.vi]
             if kind == "TOUCH":
@@ -794,7 +821,7 @@ class App:
             self.white_buf = []
         if st == "teach":
             self.tplan, self.ti, self.t_t, self.trows, self.t_button = teach.plan(), 0, time.time(), [], False
-            self.t_arm, self.t_cue = 0, False
+            self.t_arm, self.t_cue, self.t_kind = 0, False, "teach"
         if st == "collect":
             self.plan, self.ci, self.c_t, self.rows = self.collect_plan(), 0, time.time(), []
         if st == "validate":
@@ -872,7 +899,7 @@ class App:
                     if self.state == "teach" and getattr(self, "ti", 0) < len(getattr(self, "tplan", [])) and self.t_arm >= 2:
                         c_ = self.tplan[self.ti]
                         cue, spot, (tx, ty) = c_["cue"], c_["spot"], c_["xy"]
-                        ready = int(now - self.t_t < teach.READY)
+                        ready = int(now - self.t_t < c_.get("ready_s", teach.READY))
                     elif self.state == "collect" and self.ci < len(self.plan):
                         cue, spot = self.plan[self.ci][1], self.plan[self.ci][0]
                         tx, ty = POSITIONS[spot]
@@ -907,6 +934,10 @@ class App:
                         self.go("teach")
                     if k == ord("a"):
                         self.go("collect")
+                    if k == ord("h"):                   # Experiment H: depth of the hand from the wall
+                        self.go("teach")
+                        self.tplan, self.t_arm, self.t_cue, self.t_kind = depthtest.plan(), 2, True, "depth"
+                        self.t_t = time.time()
                     if k == ord("v"):
                         self.go("validate")
                     if k == ord("d"):

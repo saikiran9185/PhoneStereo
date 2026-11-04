@@ -26,7 +26,7 @@ sys.path.insert(0, HERE)
 import signs as S  # noqa: E402
 from touch3d import parallax  # noqa: E402
 
-from . import contact, maccam, shadow, teach  # noqa: E402
+from . import contact, depthtest, maccam, shadow, teach  # noqa: E402
 
 S.NUM_HANDS = 2
 
@@ -161,6 +161,9 @@ def run(base, finger="index", mac_lag=None, max_frames=None, log=print):
                    "ready": int(r["ready"] or 0), "tx": float(r["tx"] or 0), "ty": float(r["ty"] or 0),
                    "button": int(r["button"]), "tracked": 1, "tip": rec.get("tip"),
                    "x": round(rec["pos"][0], 4), "y": round(rec["pos"][1], 4), **f}
+            row["palm_phone"] = float(np.linalg.norm(rec["lm_raw"][9] - rec["lm_raw"][0]))
+            if mac:
+                row["palm_mac"] = float(np.linalg.norm(mac[0][9] - mac[0][0]))
             for cam, lms, H in (("phone", rec["lm_raw"], c["Hs"]), ("mac", (mac or [None])[0], c.get("Hm"))):
                 if lms is not None and H is not None:
                     for k, (x, y) in maccam.wall_points(lms, np.array(H)).items():
@@ -184,8 +187,12 @@ def run(base, finger="index", mac_lag=None, max_frames=None, log=print):
     rows = build(best)
     W = next(iter(calibs.values()))["W"]
     H = next(iter(calibs.values()))["H"]
+    dr = [dict(r) for r in rows if r["mode"] == "teach" and str(r["cue"]).startswith("D")]
+    if dr:
+        rep["depth"], _ = depthtest.analyse(dr, W, H)
     for mode in ("teach", "validate"):
-        mr = [dict(r) for r in rows if r["mode"] == mode and (mode != "validate" or r["cue"] in ("TOUCH", "HOVER"))]
+        mr = [dict(r) for r in rows if r["mode"] == mode and (mode != "validate" or r["cue"] in ("TOUCH", "HOVER"))
+              and not str(r["cue"]).startswith("D")]
         if not mr:
             continue
         if mode == "validate" or not any(r["button"] for r in mr):

@@ -244,3 +244,27 @@ def test_replay_runs_on_a_recorded_session(tmp_path):
                "roi": [None, None], "mac_roi": None}, open(base + "_video/calib_1.json", "w"))
     rep = replay.run(base, log=lambda *a: None)
     assert rep["frames"] == 30 and rep["phone_tracked_pct"] == 0.0     # no hand in a blank wall: nothing invented
+
+
+def test_depth_analysis_finds_a_signal_that_grows_with_distance():
+    import numpy as np
+    from surfacetouch import depthtest
+    rng = np.random.default_rng(1)
+    rows, t = [], 0.0
+    W, H = 1000, 600
+    for spot in range(4):
+        for d in depthtest.DIST:
+            for k in range(40):
+                t += 0.05
+                r = {"t": t, "spot": spot, "cue": f"D{d}", "ready": int(k < 5), "tracked": 1, "x": 0.5, "y": 0.5,
+                     "phone_index_x": 500.0, "phone_index_y": 300.0,
+                     "mac_index_x": 500.0 + 4 * d + rng.normal(0, 2), "mac_index_y": 300.0,   # split grows with d
+                     "parallax_ok": 1, "parallax_v": rng.normal(0, 1),                         # pure noise
+                     "palm_phone": 40 + 0.3 * d + rng.normal(0, 1)}
+                rows.append(r)
+    rep, good = depthtest.analyse(rows, W, H)
+    assert rep["best_signal"] == "split_pct"
+    assert rep["signals"]["split_pct"]["rank_corr"] > 0.9
+    assert abs(rep["signals"]["parallax_v"]["rank_corr"]) < 0.3
+    assert rep["signals"]["split_pct"]["cv_error_cm"]["median"] < 3
+    assert rep["tracked_pct"][20]["phone"] == 100.0
