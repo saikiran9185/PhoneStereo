@@ -17,7 +17,7 @@ enum Mode: String, CaseIterable, Identifiable {
     case signs3 = "Sign Check · 3 cameras"
     case depth = "Live depth"
     case signsPhone = "Sign Check · phone only"
-    case surface = "SurfaceTouch (projector wall)"
+    case surface = "Touch Stage (projector wall)"
     case touch3d = "Touch 3D (stereo, phone in front)"
     case touch = "Touch Screen (phone at side)"
     case speed = "Sign Cue Test (research)"
@@ -31,7 +31,7 @@ enum Mode: String, CaseIterable, Identifiable {
         case .speed: "speedtest.py"
         case .touch: "touchscreen.py"
         case .touch3d: "touch3d.py"
-        case .surface: "run_surfacetouch.py"
+        case .surface: "run_touchstage.py"
         default: "signs.py"
         }
     }

@@ -381,7 +381,18 @@ class App:
             lm = fr.get("lm_a")
             cue = self.tplan[self.ti]["cue"] if self.state == "teach" and getattr(self, "tplan", None) and self.ti < len(self.tplan) else ""
             meta = {"t": now, "lm": None if lm is None else np.round(lm, 1).tolist(), "state": self.sm.state,
-                    "p": round(float(self.p), 3), "mode": self.state, "cue": cue}
+                    "p": round(float(self.p), 3), "mode": self.state, "cue": cue,
+                    "pos": None if not self.cur_pos else [round(self.cur_pos[0], 4), round(self.cur_pos[1], 4)],
+                    "mac_lm": None}
+            if self.mac is not None:
+                with self.mac.lock:                          # Mac frame and its own landmarks, taken together
+                    mf = None if self.mac.frame is None else self.mac.frame.copy()
+                    mh = self.mac.hist[-1][1] if self.mac.hist else []
+                if mf is not None:
+                    cv2.imwrite(os.path.join(self.LIVE_DIR, "mac.tmp.jpg"), mf, [cv2.IMWRITE_JPEG_QUALITY, 90])
+                    os.replace(os.path.join(self.LIVE_DIR, "mac.tmp.jpg"), os.path.join(self.LIVE_DIR, "mac.jpg"))
+                    if mh:
+                        meta["mac_lm"] = np.round(mh[0], 1).tolist()
             with open(os.path.join(self.LIVE_DIR, "m.tmp.json"), "w") as f:
                 json.dump(meta, f)
             os.replace(os.path.join(self.LIVE_DIR, "f.tmp.jpg"), os.path.join(self.LIVE_DIR, "frame.jpg"))
