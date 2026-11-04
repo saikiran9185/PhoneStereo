@@ -126,8 +126,8 @@ def analyse(rows, W, H, mm_per_pt=None):
     rep["button_held_pct_by_cue"] = cues
     # contact signals on their own (AUC: 1 = perfect, 0.5 = useless), on trusted labels
     rep["single_feature_auc"] = {}
-    for k in ("mac_d_n", "sep_n", "gap_n", "parallax_v", "area_n"):
-        use = [r for r in good if (k != "mac_d_n" or r.get("mac_ok")) and (k != "parallax_v" or r.get("parallax_ok"))
+    for k in ("side_gap_n", "mac_d_n", "sep_n", "gap_n", "parallax_v", "area_n"):
+        use = [r for r in good if (k != "mac_d_n" or r.get("mac_ok")) and (k != "side_gap_n" or r.get("side_ok")) and (k != "parallax_v" or r.get("parallax_ok"))
                and (k not in ("sep_n", "gap_n", "area_n") or r.get("found"))]
         a = contact.auc([-float(r[k]) for r in use if r["button"]], [-float(r[k]) for r in use if not r["button"]])
         if a is not None:

@@ -26,7 +26,7 @@ sys.path.insert(0, HERE)
 import signs as S  # noqa: E402
 from touch3d import parallax  # noqa: E402
 
-from . import contact, depthtest, maccam, shadow, teach  # noqa: E402
+from . import contact, depthtest, maccam, shadow, side, teach  # noqa: E402
 
 S.NUM_HANDS = 2
 
@@ -125,7 +125,12 @@ def run(base, finger="index", mac_lag=None, max_frames=None, log=print):
             if fm is not None and c.get("Hm") is not None:
                 m = detect(tr_mac, fm, c.get("mac_roi"), ts)
                 rec["mac_lms"] = [m] if m is not None else None
-            if lm is not None:
+            if lm is not None and c.get("side"):
+                f, mlm, w = side.features(lm, rec["mac_lms"], np.array(c["Hm"]), np.array(c["Hside"]))
+                if w is not None:
+                    rec.update(lm=lm, lm_raw=lm, tip=8, f=f, side=True, pos=(float(w[0] / c["W"]), float(w[1] / c["H"])))
+                    rec["mac_lms"] = [mlm]
+            elif lm is not None:
                 tip = lock.tip(lm, t) if finger == "lock" else 8
                 rec["tip"] = tip
                 lm8 = with_tip(lm, tip)
@@ -155,7 +160,9 @@ def run(base, finger="index", mac_lag=None, max_frames=None, log=print):
             j = i + lag
             mac = per[j]["mac_lms"] if 0 <= j < len(per) else None
             f = dict(rec["f"])
-            mf, _ = maccam.features(rec["lm"], np.array(c["Hs"]), mac, None if c.get("Hm") is None else np.array(c["Hm"]), c["W"])
+            if rec.get("side"):
+                mac = rec["mac_lms"]
+            mf, _ = ({}, None) if rec.get("side") else maccam.features(rec["lm"], np.array(c["Hs"]), mac, None if c.get("Hm") is None else np.array(c["Hm"]), c["W"])
             f.update(mf)
             row = {"t": rec["t"], "mode": r["mode"], "cue": r["cue"], "spot": int(r["spot"]) if r["spot"] not in ("", None) else -1,
                    "ready": int(r["ready"] or 0), "tx": float(r["tx"] or 0), "ty": float(r["ty"] or 0),
@@ -164,7 +171,7 @@ def run(base, finger="index", mac_lag=None, max_frames=None, log=print):
             row["palm_phone"] = float(np.linalg.norm(rec["lm_raw"][9] - rec["lm_raw"][0]))
             if mac:
                 row["palm_mac"] = float(np.linalg.norm(mac[0][9] - mac[0][0]))
-            for cam, lms, H in (("phone", rec["lm_raw"], c["Hs"]), ("mac", (mac or [None])[0], c.get("Hm"))):
+            for cam, lms, H in (("phone", rec["lm_raw"], c.get("Hs")), ("mac", (mac or [None])[0], c.get("Hm"))):
                 if lms is not None and H is not None:
                     for k, (x, y) in maccam.wall_points(lms, np.array(H)).items():
                         row[f"{cam}_{teach.TIPS[k]}_x"], row[f"{cam}_{teach.TIPS[k]}_y"] = x, y

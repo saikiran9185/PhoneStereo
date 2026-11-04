@@ -10,7 +10,8 @@ import json
 import numpy as np
 
 FEATURES = ["sep_n", "gap_n", "along_n", "near_n", "found", "area_n", "dx_n", "dy_n", "parallax_v", "parallax_y", "parallax_ok",
-            "mac_d_n", "mac_dx_n", "mac_dy_n", "mac_ok"]
+            "mac_d_n", "mac_dx_n", "mac_dy_n", "mac_ok",
+            "side_gap_n", "side_dx_n", "side_dy_n", "side_ok"]
 
 
 def vec(f):
@@ -18,6 +19,8 @@ def vec(f):
 
 
 def heuristic(f):
+    if f.get("side_ok"):                    # side mode: phone looking along the wall
+        return float(1 / (1 + np.exp(-(0.45 - f["side_gap_n"]) / 0.1)))
     if f.get("mac_ok"):                     # two wide viewpoints agree on the wall point = contact
         return float(1 / (1 + np.exp(-(0.45 - f["mac_d_n"]) / 0.1)))
     if not f.get("found"):

@@ -31,7 +31,7 @@ import viewer as V
 from touch3d import ARUCO, Pair
 from touchscreen import ax_ok, displays, key, mouse, tink
 
-from . import contact, depthtest, maccam, pinch, record, replay, shadow, teach, zoom
+from . import contact, depthtest, maccam, pinch, record, replay, shadow, side, teach, zoom
 from .state import TouchStateMachine
 
 S.NUM_HANDS = 2
@@ -91,6 +91,7 @@ class App:
         self.flock = replay.FingerLock()
         self.click = a.click                             # "pinch" (thumb + index) or "touch" (finger on the wall)
         self.pcur = pinch.Cursor()
+        self.side, self.Hside = bool(a.side), None       # side mode: Mac = position, phone (looking along the wall) = touch
         self.pinch_r = None
         self.vrows = []
         self.load()
@@ -148,7 +149,9 @@ class App:
         ma, mb = self.find(fr["a"]), self.find(fr["b"])
         self.seen = (len(ma), len(mb))
         ids = [i for i in ma if i in lay]
-        if len(ids) < 4:
+        if len(ids) < 4 or self.side:
+            if self.side or time.time() - self.t_state > 3.0:
+                self.side_markers(fr, lay, len(ids))
             return
         A = np.concatenate([ma[i] for i in ids]).astype(np.float32)
         Sc = np.concatenate([lay[i] for i in ids]).astype(np.float32)
@@ -198,6 +201,87 @@ class App:
         tink()
         self.go("white")
 
+    def mac_wall(self, lay):
+        """Mac camera -> wall homography from the projected markers, or None."""
+        mf = self.mac.latest() if self.mac else None
+        if mf is None:
+            return None, 0, None
+        mm = self.find(mf)
+        mids = [i for i in mm if i in lay]
+        if len(mids) < 4:
+            return None, len(mids), None
+        M = np.concatenate([mm[i] for i in mids]).astype(np.float32)
+        Sm = np.concatenate([lay[i] for i in mids]).astype(np.float32)
+        Hm, _ = cv2.findHomography(M, Sm, cv2.RANSAC, 4.0)
+        if Hm is None:
+            return None, len(mids), None
+        e = np.linalg.norm(cv2.perspectiveTransform(M[None], Hm)[0] - Sm, axis=1)
+        return Hm, len(mids), float(np.median(e))
+
+    def side_markers(self, fr, lay, phone_seen):
+        """Phone can't read the markers (looking along the wall): calibrate position with the Mac alone."""
+        Hm, n, fit = self.mac_wall(lay)
+        if Hm is None:
+            if time.time() - self.t_state > 6:
+                self.log(f"neither camera sees the markers well (phone {phone_seen}, Mac {n} of 15): "
+                         "turn the Mac to face the wall", show=True)
+                self.t_state = time.time() - 3.0
+            return
+        self.Hm, self.side = Hm, True
+        self.Hs = None
+        self.cal_info = {"mode": "side", "markers_phone": phone_seen, "markers_mac": n, "fit_mac_pt_median": round(fit, 2)}
+        self.mac.roi = maccam.wall_roi(self.Hm, self.W, self.H, self.mac.latest().shape)
+        self.log(f"SIDE MODE: Mac gives position ({n} markers, fit {fit:.1f} pt); phone judges touch. "
+                 "Now touch each dot and hold.", show=True)
+        if self.click == "pinch":
+            self.click = "touch"
+        tink()
+        self.go("sidecal")
+
+    def sidecal_step(self, fr, now):
+        """Touch 6 dots: pair the phone fingertip (image) with the Mac fingertip (wall) to learn the wall in the phone view."""
+        if self.si >= len(side.DOTS):
+            return
+        el = now - self.s_t
+        if el >= side.READY and fr["lm_a"] is not None:
+            mh = self.mac.hands_at(fr["t_recv"] - self.a.phone_lag)
+            tx, ty = side.DOTS[self.si]
+            best = None
+            for w, _ in side.mac_tip_wall(mh, self.Hm):
+                d = np.hypot(w[0] / self.W - tx, (w[1] / self.H - ty) * self.H / self.W)
+                if d < 0.06 and (best is None or d < best[0]):
+                    best = (d, w)
+            if best is not None:
+                self.s_buf.append((fr["lm_a"][8].copy(), best[1]))
+        if el >= side.READY + side.HOLD:
+            if len(self.s_buf) >= side.MIN_FRAMES:
+                P = np.median([b[0] for b in self.s_buf], 0)
+                Wl = np.median([b[1] for b in self.s_buf], 0)
+                self.s_pts.append((P, Wl))
+                self.si += 1
+                tink()
+            else:
+                self.s_tries += 1
+                self.log("didn't see the finger on the dot in both cameras - touch it again", show=True)
+                if self.s_tries > 2:
+                    self.si += 1
+                    self.s_tries = 0
+            self.s_t, self.s_buf = now, []
+            if self.si >= len(side.DOTS):
+                H, err = side.fit([p for p, _ in self.s_pts], [w for _, w in self.s_pts])
+                if H is None:
+                    self.log("not enough touches seen by both cameras - press C to try again", show=True)
+                    self.go("menu")
+                    return
+                self.Hside = H
+                self.white = np.ones((8, 8), np.float32)
+                self.cal_info.update(side_touches=len(self.s_pts), side_fit_px=round(err, 1))
+                self.save(Hm=self.Hm.tolist(), Hside=H.tolist(), side=True, calib=self.cal_info,
+                          time=datetime.datetime.now().isoformat(timespec="seconds"))
+                self.snapshot_calib()
+                self.log(f"side calibration: {len(self.s_pts)} touches, fit {err:.1f} px in the phone view", show=True)
+                self.go("menu")
+
     def restart_stream(self, crop):
         """Restart the phone streamer (USB) with a sensor crop and reconnect."""
         self.pair.running = False
@@ -246,7 +330,8 @@ class App:
         if not self.rec:
             return
         self.calib_id += 1
-        d = {"id": self.calib_id, "Hs": self.Hs.tolist(), "Hp": None if self.pair.Hp is None else self.pair.Hp.tolist(),
+        d = {"id": self.calib_id, "Hs": None if self.Hs is None else self.Hs.tolist(),
+             "Hside": None if self.Hside is None else self.Hside.tolist(), "side": self.side, "Hp": None if self.pair.Hp is None else self.pair.Hp.tolist(),
              "Hm": None if self.Hm is None else self.Hm.tolist(), "turn": self.pair.turn, "W": self.W, "H": self.H,
              "roi": self.pair.roi, "mac_roi": self.mac.roi if self.mac else None, "crop": self.crop,
              "info": self.cal_info}
@@ -255,6 +340,8 @@ class App:
 
     def set_rois(self, fr):
         """Track hands only inside the wall area of each camera: the hand appears bigger to the tracker."""
+        if self.Hs is None:
+            return
         self.pair.roi[0] = maccam.wall_roi(self.Hs, self.W, self.H, fr["a"].shape)
         if self.pair.Hp is not None:
             Hb = self.pair.Hp @ np.eye(3)                       # ultra-wide -> main; wall = Hs @ Hp
@@ -286,6 +373,8 @@ class App:
         valid = fr["src"] is not None
         self.feat, self.dbg = None, None
         pos = None
+        if valid and self.side:
+            return self.process_side(fr, now)
         if valid:
             lm = fr["lm_a"]
             if not self.a.no_finger_lock and self.click != "pinch":                # pointing finger, not whatever MediaPipe calls "index"
@@ -340,6 +429,40 @@ class App:
             self.on_event(e, now)
         if self.state == "collect":
             self.collect_record(fr, now, pos)
+        if self.state == "teach":
+            self.teach_record(fr, now, pos, valid)
+        if self.state == "validate" and self.feat is not None and self.vi < len(self.vplan):
+            kind, (tx, ty) = self.vplan[self.vi]
+            self.vrows.append({"t": round(now - self.t_state, 3), "task": self.vi, "kind": kind, "tx": tx, "ty": ty,
+                               "x": None if pos is None else round(pos[0], 4), "y": None if pos is None else round(pos[1], 4),
+                               "p": round(self.p, 3), "state": self.sm.state, **self.feat})
+
+    def process_side(self, fr, now):
+        """Side mode: position from the Mac fingertip on the wall, touch from the phone's side view."""
+        lm = fr["lm_a"]
+        mh = self.mac.hands_at(fr["t_recv"] - self.a.phone_lag) if self.mac else None
+        f, self.mac_lm, w = side.features(lm, mh, self.Hm, self.Hside)
+        pos, valid = None, False
+        if w is not None:
+            pos = (float(w[0] / self.W), float(w[1] / self.H))
+            valid = -0.03 <= pos[0] <= 1.03 and -0.03 <= pos[1] <= 1.03
+        if self.click == "pinch" and self.mac_lm is not None:
+            self.pinch_r = pinch.ratio(self.mac_lm)
+            mid = cv2.perspectiveTransform(np.array([[(self.mac_lm[4] + self.mac_lm[8]) / 2]], np.float32), self.Hm)[0, 0]
+            c = self.pcur.update(now, self.pinch_r, w, mid) if w is not None else None
+            if c is not None:
+                pos = (float(c[0] / self.W), float(c[1] / self.H))
+            self.p = pinch.prob(self.pinch_r) if valid else 0.0
+        else:
+            self.p = (self.model.prob(f) if self.model.trained else side.heuristic(f)) if (valid and f["side_ok"]) else 0.0
+        self.feat, self.dbg = (f if f["side_ok"] else None), None
+        self.no_hand_since = None
+        self.cur_pos = pos
+        for e in self.sm.update(now, valid, self.p, pos):
+            if e["event"] != "HOVER":
+                self.evlog.write(json.dumps({"event": e["event"], "pointer_id": 1, "x": e["x"], "y": e["y"],
+                                             "confidence": e["confidence"], "timestamp": e["t"], "mode": self.state}) + "\n")
+            self.on_event(e, now)
         if self.state == "teach":
             self.teach_record(fr, now, pos, valid)
         if self.state == "validate" and self.feat is not None and self.vi < len(self.vplan):
@@ -709,6 +832,13 @@ class App:
             put(f"A {self.ci + 1}/{len(self.plan)}: {txt}", 30, 40, 0.7, (40, 40, 220) if rec else (20, 120, 200))
             put("RECORDING - hold still" if rec else "get into position...", 30, 72, 0.6, (40, 40, 40), 1)
             cv2.rectangle(img, (0, ch - 8), (int(cw * min(1, el / (READY_S + RECORD_S))), ch), (40, 40, 220), -1)
+        elif st == "sidecal" and self.si < len(side.DOTS):
+            x, y = side.DOTS[self.si]
+            rec = now - self.s_t >= side.READY
+            cv2.circle(img, P(x, y), 16, (40, 40, 220), -1 if rec else 3, cv2.LINE_AA)
+            put(f"Side setup {self.si + 1}/{len(side.DOTS)}: TOUCH the dot and hold still", 30, 40, 0.7, (40, 40, 220))
+            put("the Mac finds your fingertip on the wall, the phone learns where the wall is", 30, 72, 0.5, (90, 90, 90), 1)
+            cv2.rectangle(img, (0, ch - 8), (int(cw * min(1, (now - self.s_t) / (side.READY + side.HOLD))), ch), (40, 40, 220), -1)
         elif st == "teach" and self.t_arm < 2:
             put("Experiment T - teach the touch model", 30, 50, 0.8, (40, 40, 220))
             for i, t in enumerate(["Hold a mouse button (or Shift) in your OTHER hand exactly while your finger touches the wall.",
@@ -805,7 +935,8 @@ class App:
                  f"stereo shift {f.get('parallax_v', '-') if f.get('parallax_ok') else '-'} px   sep {f.get('sep_n', '-')}",
                  f"fps {self.pair.rx.fps(0):.0f}   frame age {1000 * np.median(self.frame_age):.0f} ms" if self.frame_age else "fps -",
                  f"false touches (live/demo) {self.false_touches}",
-                 f"pinch {self.pinch_r:.2f} (closed < {pinch.ENTER}, open > {pinch.EXIT})" if self.pinch_r is not None else "pinch -"]
+                 f"pinch {self.pinch_r:.2f} (closed < {pinch.ENTER}, open > {pinch.EXIT})" if self.pinch_r is not None else "pinch -",
+                 (f"SIDE: finger off the wall {f.get('side_gap_n', '-')} finger lengths (touch < 0.45)" if self.side else "")]
         for i, t in enumerate(lines):
             put(t, x0, 350 + i * 28, 0.55)
         bx, by = x0, 530
@@ -846,6 +977,8 @@ class App:
         self.sm = self.new_sm()
         if st == "white":
             self.white_buf = []
+        if st == "sidecal":
+            self.si, self.s_t, self.s_buf, self.s_pts, self.s_tries = 0, time.time(), [], [], 0
         if st == "teach":
             self.tplan, self.ti, self.t_t, self.trows, self.t_button = teach.plan(), 0, time.time(), [], False
             self.t_arm, self.t_cue, self.t_kind = 0, False, "teach"
@@ -898,7 +1031,9 @@ class App:
                         self.markers_step(fr)
                     elif self.state == "white":
                         self.white_step(fr)
-                    elif self.Hs is not None and self.white is not None:
+                    elif self.state == "sidecal":
+                        self.sidecal_step(fr, now)
+                    elif (self.side and self.Hside is not None) or (self.Hs is not None and self.white is not None):
                         self.process(fr, now)
                 if self.state == "collect":
                     self.collect_tick(now)
@@ -955,7 +1090,7 @@ class App:
                     if k == ord(" "):
                         self.go("markers")
                 if k == ord("c"):
-                    self.Hs = self.white = None
+                    self.Hs = self.white = self.Hside = None
                     self.go("markers")
                 if self.state == "menu":
                     if k == ord("e"):
@@ -1007,6 +1142,8 @@ def main():
     ap.add_argument("--zoom", action="store_true",
                     help="USB only: crop the phone sensor to the wall after the first calibration (./build_streamer.sh once)")
     ap.add_argument("--no-finger-lock", action="store_true", help="use MediaPipe's index tip as is")
+    ap.add_argument("--side", action="store_true",
+                    help="phone looks along the wall (judges touch), Mac faces it (position). Automatic when only the Mac sees the markers")
     ap.add_argument("--click", choices=["pinch", "touch"], default="pinch",
                     help="what counts as a click: thumb+index pinch (default) or the finger touching the wall")
     ap.add_argument("--stream-size", default="960x720", help="phone stream size in --zoom mode")

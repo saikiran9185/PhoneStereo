@@ -315,3 +315,28 @@ def test_pinch_state_machine_tap_is_click_hold_is_drag():
         ev += [e["event"] for e in sm.update(t, True, pinch.prob(r), (0.3 + 0.01 * i, 0.5))]
         t += 0.05
     assert "TOUCH_MOVE" in ev and "TOUCH_UP" in ev and "CLICK" not in ev
+
+
+def test_side_mode_learns_the_wall_from_touches_and_sees_hover():
+    """Synthetic side camera: wall points project through a known homography; a hovering fingertip is displaced."""
+    import numpy as np
+    import cv2
+    from surfacetouch import side
+    Htrue = np.array([[0.2, 0.0, 300.0], [0.05, 0.6, 100.0], [0.0001, 0.0, 1.0]])      # wall pt -> phone px
+    proj = lambda w: cv2.perspectiveTransform(np.array([[w]], np.float32), Htrue)[0, 0]
+    W, H = 1512, 982
+    walls = [np.array([x * W, y * H]) for x, y in side.DOTS]
+    Hs, err = side.fit([proj(w) for w in walls], walls)
+    assert err < 0.5
+    Hm = np.eye(3)                                                       # Mac image = wall coords for the test
+    def phone_lm(tip):
+        lm = np.zeros((21, 2), np.float32)
+        lm[8], lm[6] = tip, tip + [0, 25]                                # 25 px finger
+        return lm
+    w = np.array([700.0, 500.0])
+    mac = np.zeros((21, 2), np.float32); mac[8] = w
+    touch, _, pos = side.features(phone_lm(proj(w)), [mac], Hm, Hs)
+    hover, _, _ = side.features(phone_lm(proj(w) + [0, -15]), [mac], Hm, Hs)   # 15 px off the wall line
+    assert touch["side_ok"] == 1 and touch["side_gap_n"] < 0.05 and np.allclose(pos, w)
+    assert hover["side_gap_n"] > 0.5
+    assert side.heuristic(touch) > 0.95 > 0.2 > side.heuristic(hover)
