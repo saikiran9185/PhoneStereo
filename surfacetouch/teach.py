@@ -34,6 +34,29 @@ TRIM = 0.15                      # s around each button change: human reaction t
 TIPS = {4: "thumb", 8: "index", 12: "middle"}
 
 
+def quick_plan(spots=3, reps=2):
+    """Experiment Y: is touch vs not-touch visible at all from here? TOUCH / OFF alternating, ~45 s."""
+    pts = [(0.25, 0.35), (0.5, 0.6), (0.75, 0.35)][:spots]
+    out = []
+    for i, s in enumerate(pts):
+        for _ in range(reps):
+            out.append({"spot": i, "xy": s, "cue": "HOLD", "dur": 3.0, "text": "TOUCH the dot and hold still"})
+            out.append({"spot": i, "xy": s, "cue": "OFF", "dur": 3.0,
+                        "text": "finger 5-10 cm OFF the wall, in front of the dot - hold still, don't touch"})
+    return out
+
+
+def verdict(rep):
+    a, rc, pr = rep.get("cv_auc"), rep.get("recall_pct"), rep.get("precision_pct")
+    if a is None or rep.get("touch_frames", 0) < 10 or rep.get("no_touch_frames", 0) < 10:
+        return "NOT ENOUGH DATA", "too few still frames with the hand seen - check both cameras see your hand"
+    if a >= 0.9 and (rc or 0) >= 80 and (pr or 0) >= 90:
+        return "YES", f"touch caught {rc:.0f}%, calls correct {pr:.0f}%, separation {a:.2f}"
+    if a >= 0.75:
+        return "PARTLY", f"separation {a:.2f} (1 = perfect, 0.5 = guessing), touch caught {rc or 0:.0f}%, calls correct {pr or 0:.0f}%"
+    return "NO", f"separation {a:.2f} (0.5 = guessing): touch and not-touch look the same from here"
+
+
 def button_down():
     """Any mouse button or Shift held, read from the system state (no permissions needed, works with any focus)."""
     st = Q.kCGEventSourceStateCombinedSessionState
@@ -88,6 +111,8 @@ def cue_labels(rows, W, H):
             elif cue in ("NEAR", "HOVER") and still and d < NEAR_DOT:
                 r["button"] = 0
             elif cue == "WAVE":
+                r["button"] = 0
+            elif cue == "OFF" and still:                  # quick test: finger held off the wall, anywhere
                 r["button"] = 0
             else:
                 r["ready"] = 1

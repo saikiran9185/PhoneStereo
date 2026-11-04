@@ -340,3 +340,23 @@ def test_side_mode_learns_the_wall_from_touches_and_sees_hover():
     assert touch["side_ok"] == 1 and touch["side_gap_n"] < 0.05 and np.allclose(pos, w)
     assert hover["side_gap_n"] > 0.5
     assert side.heuristic(touch) > 0.95 > 0.2 > side.heuristic(hover)
+
+
+def test_quick_yes_no_test_says_yes_when_touch_is_visible():
+    import numpy as np
+    from surfacetouch import teach
+    rng = np.random.default_rng(1)
+    rows, t = [], 0.0
+    W, H = 1512, 982
+    for c in teach.quick_plan():
+        x, y = c["xy"]
+        for k in range(int(c["dur"] / 0.05)):
+            touch = c["cue"] == "HOLD"
+            rows.append({"t": t, "cue": c["cue"], "spot": c["spot"], "tx": x, "ty": y, "ready": int(k < 10),
+                         "tracked": 1, "x": x + rng.normal(0, 0.002), "y": y + rng.normal(0, 0.002), "button": 0,
+                         "side_ok": 1, "side_gap_n": abs(rng.normal(0.1 if touch else 1.2, 0.08))})
+            t += 0.05
+    teach.cue_labels(rows, W, H)
+    rep, _ = teach.analyse(rows, W, H, 0.5)
+    v, why = teach.verdict(rep)
+    assert v == "YES", (v, why, rep.get("cv_auc"))

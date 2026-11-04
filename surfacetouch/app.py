@@ -91,6 +91,7 @@ class App:
         self.crop, self.zoomed, self.calib_id = None, False, 0
         self.flock = replay.FingerLock()
         self.pcur = pinch.Cursor()
+        self.quick = None
         self.side, self.Hside = bool(a.side), None       # side mode: Mac = position, phone (looking along the wall) = touch
         self.pinch_r = None
         self.vrows = []
@@ -621,6 +622,8 @@ class App:
         rows = self.trows
         if self.t_kind == "depth":
             return self.finish_depth(rows)
+        if self.t_kind == "quick":
+            return self.finish_quick(rows)
         if rows:
             keys = list(dict.fromkeys(k for r in rows for k in r))
             with open(self.base + "_teach_samples.csv", "w", newline="") as f:
@@ -642,6 +645,24 @@ class App:
             f.write(json.dumps({"kind": "surface_teach", "time": os.path.basename(self.base), **rep}) + "\n")
         self.results["T"] = {k: rep.get(k) for k in ("cv_auc", "precision_pct", "recall_pct", "button_held_pct_by_cue")}
         self.log("EXPERIMENT T " + json.dumps(rep), show=True)
+        self.go("menu")
+
+    def finish_quick(self, rows):
+        if rows:
+            keys = list(dict.fromkeys(k for r in rows for k in r))
+            with open(self.base + "_quick_samples.csv", "w", newline="") as f:
+                w = csv.DictWriter(f, fieldnames=keys)
+                w.writeheader()
+                w.writerows(rows)
+        teach.cue_labels(rows, self.W, self.H)
+        rep, _ = teach.analyse(rows, self.W, self.H, self.wall_mm_per_pt())
+        v, why = teach.verdict(rep)
+        rep.update(verdict=v, why=why, mac_camera=self.Hm is not None, side=self.side)
+        json.dump(rep, open(self.base + "_quick.json", "w"), indent=2)
+        with open(os.path.join(V.LOG_DIR, "research_sessions.jsonl"), "a") as f:
+            f.write(json.dumps({"kind": "surface_quick", "time": os.path.basename(self.base), **rep}) + "\n")
+        self.quick = (v, why)
+        self.log(f"EXPERIMENT Y: {v} - {why}  " + json.dumps(rep), show=True)
         self.go("menu")
 
     def finish_depth(self, rows):
@@ -813,7 +834,11 @@ class App:
                 30, 50, 0.8, (30, 120, 30))
             put("E  Experiment T: teach (hold mouse button / Shift while touching)    V  Experiment B: accuracy grid", 30, 95)
             put("D  Demo wall: buttons, draw, drag, slider    L  Live: control slides     C  recalibrate   Q  quit", 30, 125)
-            put("H  Experiment H: hand depth - fingertip at 0 / 5 / 10 / 20 / 40 cm from the wall", 30, 155)
+            put("H  Experiment H: hand depth - fingertip at 0 / 5 / 10 / 20 / 40 cm from the wall      Y  quick test: can it see touch? (45 s)", 30, 155)
+            if getattr(self, "quick", None):
+                v, why = self.quick
+                put(f"QUICK TEST: {v}", 30, ch - 110, 1.4, {"YES": (40, 150, 40), "PARTLY": (20, 140, 220)}.get(v, (40, 40, 220)), 3)
+                put(why[:110], 30, ch - 70, 0.55, (40, 40, 40), 1)
             put(f"P  click by: {'PINCH (thumb + index) - quick pinch = click, pinch and hold = drag' if self.click == 'pinch' else 'TOUCHING the wall'}",
                 30, 215, 0.55, (40, 40, 220) if self.click == "pinch" else (90, 90, 90), 1)
             put("Touch anywhere to try: the ring shows the touch engine.", 30, 185, 0.5, (90, 90, 90), 1)
@@ -854,14 +879,16 @@ class App:
             el = now - self.t_t
             rec = el >= c.get("ready_s", teach.READY)
             col = {"HOLD": (40, 40, 220), "TAP": (40, 40, 220), "D0": (40, 40, 220)}.get(c["cue"], (30, 140, 230))
+            if c["cue"] == "OFF":
+                cv2.circle(img, P(x, y), 40, col, 2, cv2.LINE_AA)
             if c["cue"] in ("HOLD", "TAP"):
                 cv2.circle(img, P(x, y), 14, col, -1, cv2.LINE_AA)
             else:
                 cv2.circle(img, P(x, y), 24, col, 3, cv2.LINE_AA)
-            put(f"{'H' if self.t_kind == 'depth' else 'T'} {self.ti + 1}/{len(self.tplan)}  {c['cue']}: {c['text']}", 30, 40, 0.62, col)
+            put(f"{ {'depth': 'H', 'quick': 'Y'}.get(self.t_kind, 'T')} {self.ti + 1}/{len(self.tplan)}  {c['cue']}: {c['text']}", 30, 40, 0.62, col)
             put("go" if rec else "get ready...", 30, 72, 0.6, (40, 40, 40), 1)
             b = self.t_button
-            if self.t_kind != "depth":
+            if self.t_kind == "teach":
                 cv2.rectangle(img, (cw - 230, 16), (cw - 20, 60), (40, 40, 220) if b else (200, 200, 200), -1)
                 put("BUTTON: TOUCHING" if b else "button: not touching", cw - 222, 45, 0.5,
                     (255, 255, 255) if b else (60, 60, 60), 1)
@@ -1101,6 +1128,10 @@ class App:
                         self.click = "touch" if self.click == "pinch" else "pinch"
                         self.sm = self.new_sm()
                         self.log(f"click by {self.click}", show=True)
+                    if k == ord("y"):                   # Experiment Y: quick yes/no - can it see touch from here?
+                        self.go("teach")
+                        self.tplan, self.t_arm, self.t_cue, self.t_kind = teach.quick_plan(), 2, True, "quick"
+                        self.t_t = time.time()
                     if k == ord("h"):                   # Experiment H: depth of the hand from the wall
                         self.go("teach")
                         self.tplan, self.t_arm, self.t_cue, self.t_kind = depthtest.plan(), 2, True, "depth"
