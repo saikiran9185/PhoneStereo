@@ -58,6 +58,9 @@ public class StereoStream {
     static float focusDiopters = 1.5f; // 0 = continuous autofocus
     static int tcpPort = 0;
     static String token = null;
+    // Sensor crop per lens (normalised x0,y0,x1,y1 of the active array): real optical detail of the wall
+    // instead of a downscaled full view. Set by the Mac after it has found the wall (SurfaceTouch --zoom).
+    static float[][] crops = new float[2][];
 
     static class FakeContext extends ContextWrapper {
         FakeContext(Context base) { super(base); }
@@ -196,7 +199,15 @@ public class StereoStream {
         final int n = single ? 1 : 2;
 
         DataOutputStream out = new DataOutputStream(new BufferedOutputStream(rawOut, 1 << 17));
-        byte[] hj = header(cm, phys).toString().getBytes(StandardCharsets.UTF_8);
+        JSONObject hdr = header(cm, phys);
+        JSONArray cj = new JSONArray();
+        for (int k = 0; k < 2; k++) {
+            JSONArray c = new JSONArray();
+            if (crops[k] != null) for (float v : crops[k]) c.put((double) v);
+            cj.put(c);
+        }
+        hdr.put("crops", cj);
+        byte[] hj = hdr.toString().getBytes(StandardCharsets.UTF_8);
         out.writeInt(MAGIC_HEADER);
         out.writeInt(hj.length);
         out.write(hj);
@@ -276,7 +287,35 @@ public class StereoStream {
                 rq.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_OFF);
                 rq.set(CaptureRequest.LENS_FOCUS_DISTANCE, focusDiopters);
             }
-            session.setRepeatingRequest(rq.build(), null, camHandler);
+            List<CaptureRequest.Key<?>> physKeys = single ? null
+                    : cm.getCameraCharacteristics(logicalId).getAvailablePhysicalCameraRequestKeys();
+            if (physKeys == null) physKeys = Collections.emptyList();      // this phone: no per-lens keys
+            for (int k = 0; k < n; k++) {
+                if (crops[k] == null) continue;
+                String id = phys.get(k);
+                Rect aa = cm.getCameraCharacteristics(id).get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE);
+                float[] c = crops[k];
+                Rect r = new Rect(Math.round(c[0] * aa.width()), Math.round(c[1] * aa.height()),
+                        Math.round(c[2] * aa.width()), Math.round(c[3] * aa.height()));
+                if (!single && physKeys.contains(CaptureRequest.SCALER_CROP_REGION)) {
+                    rq.setPhysicalCameraKey(CaptureRequest.SCALER_CROP_REGION, r, id);
+                    System.out.println("crop " + id + " " + r + " (per lens)");
+                } else if (k == 0) {
+                    rq.set(CaptureRequest.SCALER_CROP_REGION, r);
+                    System.out.println("crop " + id + " " + r + " (whole request)");
+                }
+            }
+            final boolean[] told = new boolean[1];
+            session.setRepeatingRequest(rq.build(), new CameraCaptureSession.CaptureCallback() {
+                @Override public void onCaptureCompleted(CameraCaptureSession ss, CaptureRequest req, TotalCaptureResult res) {
+                    if (told[0] || res.getFrameNumber() < 10) return;
+                    told[0] = true;                       // report the crop each lens really used, once
+                    StringBuilder sb = new StringBuilder("applied crop: logical " + res.get(CaptureResult.SCALER_CROP_REGION));
+                    for (Map.Entry<String, CaptureResult> e : res.getPhysicalCameraResults().entrySet())
+                        sb.append("  lens ").append(e.getKey()).append(" ").append(e.getValue().get(CaptureResult.SCALER_CROP_REGION));
+                    System.out.println(sb);
+                }
+            }, camHandler);
             System.out.println("streaming " + phys + " at " + width + "x" + height + ", focus " +
                     (focusDiopters > 0 ? (focusDiopters + " dpt (" + Math.round(100 / focusDiopters) + " cm)") : "auto"));
 
@@ -322,6 +361,13 @@ public class StereoStream {
                 case "--focus": focusDiopters = Float.parseFloat(args[i + 1]); break;
                 case "--tcp": tcpPort = Integer.parseInt(args[i + 1]); break;
                 case "--token": token = args[i + 1]; break;
+                case "--crop0": case "--crop1": {
+                    String[] v = args[i + 1].split(",");
+                    float[] c = new float[4];
+                    for (int j = 0; j < 4; j++) c[j] = Float.parseFloat(v[j]);
+                    crops[args[i].endsWith("0") ? 0 : 1] = c;
+                    break;
+                }
             }
         }
         Looper.prepareMainLooper();

@@ -31,7 +31,7 @@ import viewer as V
 from touch3d import ARUCO, Pair
 from touchscreen import ax_ok, displays, key, mouse, tink
 
-from . import contact, maccam, record, shadow, teach
+from . import contact, maccam, record, shadow, teach, zoom
 from .state import TouchStateMachine
 
 S.NUM_HANDS = 2
@@ -87,6 +87,7 @@ class App:
         self.demo = {"color": (40, 40, 220), "strokes": [], "card": [0.62, 0.45], "slider": 0.5, "drag": None}
         self.frame_age = collections.deque(maxlen=60)
         self.mac, self.Hm, self.mac_lm, self.mac_seen = None, None, None, 0
+        self.crop, self.zoomed, self.calib_id = None, False, 0
         self.vrows = []
         self.load()
 
@@ -179,8 +180,35 @@ class App:
             else:
                 self.log(f"Mac camera: {len(mids)} markers, fit {self.cal_info['fit_mac_pt_median']} pt", show=True)
         self.log(f"wall found: {len(ids)} markers (both lenses {len(both)}), fit {self.cal_info['fit_pt_median']} pt", show=True)
+        if self.a.zoom and not self.zoomed:
+            self.zoomed = True                           # one zoom step per calibration
+            raw_h, raw_w = (fr["a"].shape[:2] if self.pair.turn % 2 == 0 else fr["a"].shape[1::-1])
+            crop = zoom.crop_for(A, self.pair.turn, raw_w, raw_h, self.crop)
+            if crop is not None and crop != self.crop:
+                self.log(f"zooming the phone camera {zoom.zoom_factor(crop)}x onto the wall - calibrating again", show=True)
+                self.restart_stream(crop)
+                self.go("markers")
+                return
+        self.cal_info["zoom"] = zoom.zoom_factor(self.crop)
+        self.cal_info["crop"] = self.crop
         tink()
         self.go("white")
+
+    def restart_stream(self, crop):
+        """Restart the phone streamer (USB) with a sensor crop and reconnect."""
+        self.pair.running = False
+        self.pair.rx.running = False
+        try:
+            self.pair.rx.sock.close()
+        except Exception:
+            pass
+        self.crop = crop
+        zoom.start_streamer(self.a.token, crop, self.a.stream_size, log=self.log)
+        turn = self.pair.turn
+        self.pair = Pair(self.log, self.a.host, self.a.token, turn, boost=False)
+        self.pair.start()
+        self.Hs = self.white = None
+        self.pair.roi = [None, None]
 
     def white_step(self, fr):
         el = time.time() - self.t_state
@@ -204,8 +232,22 @@ class App:
                 self.log("the wall is over-exposed in the camera: dim the room lights or lower projector brightness",
                          show=True)
             self.set_rois(fr)
+            self.snapshot_calib()
+            self.zoomed = False                          # a later recalibration (C) may re-zoom
             tink()
             self.go("menu")
+
+    def snapshot_calib(self):
+        """Each calibration is kept with the session, so a replay uses exactly the mapping that was live."""
+        if not self.rec:
+            return
+        self.calib_id += 1
+        d = {"id": self.calib_id, "Hs": self.Hs.tolist(), "Hp": None if self.pair.Hp is None else self.pair.Hp.tolist(),
+             "Hm": None if self.Hm is None else self.Hm.tolist(), "turn": self.pair.turn, "W": self.W, "H": self.H,
+             "roi": self.pair.roi, "mac_roi": self.mac.roi if self.mac else None, "crop": self.crop,
+             "info": self.cal_info}
+        json.dump(d, open(os.path.join(self.rec.folder, f"calib_{self.calib_id}.json"), "w"), indent=1)
+        np.save(os.path.join(self.rec.folder, f"white_{self.calib_id}.npy"), self.white)
 
     def set_rois(self, fr):
         """Track hands only inside the wall area of each camera: the hand appears bigger to the tracker."""
@@ -760,6 +802,8 @@ class App:
 
     def run(self):
         turn = (self.saved or {}).get("turn", self.a.turn)
+        if self.a.zoom:
+            zoom.start_streamer(self.a.token, None, self.a.stream_size, log=self.log)
         self.pair = Pair(self.log, self.a.host, self.a.token, turn, boost=False)
         self.pair.start()
         self.rec = None
@@ -812,20 +856,25 @@ class App:
                 cv2.imshow(DIAG, dimg)
                 if self.rec and fr is not None and fr["t"] != getattr(self, "_rec_t", None):
                     self._rec_t = fr["t"]
-                    cue = ""
-                    if self.state == "teach" and getattr(self, "ti", 0) < len(getattr(self, "tplan", [])):
-                        cue = self.tplan[self.ti]["cue"]
+                    cue, spot, ready, tx, ty = "", "", "", "", ""
+                    if self.state == "teach" and getattr(self, "ti", 0) < len(getattr(self, "tplan", [])) and self.t_arm >= 2:
+                        c_ = self.tplan[self.ti]
+                        cue, spot, (tx, ty) = c_["cue"], c_["spot"], c_["xy"]
+                        ready = int(now - self.t_t < teach.READY)
                     elif self.state == "collect" and self.ci < len(self.plan):
-                        cue = self.plan[self.ci][1]
+                        cue, spot = self.plan[self.ci][1], self.plan[self.ci][0]
+                        tx, ty = POSITIONS[spot]
+                        ready = int(now - self.c_t < READY_S)
                     elif self.state == "validate" and self.vi < len(self.vplan):
-                        cue = self.vplan[self.vi][0]
+                        cue, spot, (tx, ty) = self.vplan[self.vi][0], self.vi, self.vplan[self.vi][1]
                     self.rec.add({"main": fr["a"], "wide": fr["b"], "mac": self.mac.latest() if self.mac else None,
                                   "review": record.review_frame(dimg, last_canvas if last_canvas is not None else dimg)},
                                  {"t_recv": round(fr["t_recv"], 3), "t": round(now, 3), "mode": self.state, "cue": cue,
                                   "button": int(teach.button_down()), "p": round(self.p, 3), "touch_state": self.sm.state,
                                   "x": None if self.cur_pos is None else round(self.cur_pos[0], 4),
                                   "y": None if self.cur_pos is None else round(self.cur_pos[1], 4),
-                                  "hand": fr["src"] or ""})
+                                  "hand": fr["src"] or "", "spot": spot, "ready": ready, "tx": tx, "ty": ty,
+                                  "calib": self.calib_id, "mac_t": round(self.mac.latest_t, 3) if self.mac else ""})
                 k = cv2.waitKey(5) & 0xFF
                 if k in (ord("q"), 27):
                     break
@@ -880,6 +929,9 @@ def main():
     ap.add_argument("--mac-cam", type=int, default=0, help="Mac camera index (second viewpoint of the wall)")
     ap.add_argument("--no-mac", action="store_true", help="phone cameras only")
     ap.add_argument("--no-record", action="store_true", help="don't record session video")
+    ap.add_argument("--zoom", action="store_true",
+                    help="USB only: crop the phone sensor to the wall after the first calibration (./build_streamer.sh once)")
+    ap.add_argument("--stream-size", default="960x720", help="phone stream size in --zoom mode")
     ap.add_argument("--phone-lag", type=float, default=0.06, help="phone frame delay vs Mac camera, s")
     a = ap.parse_args()
     App(a).run()

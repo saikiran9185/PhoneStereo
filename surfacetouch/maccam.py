@@ -29,6 +29,7 @@ class MacCam(threading.Thread):
         self.running = True
         self.error = None
         self.fps = 0.0
+        self.latest_t = 0.0
         self.roi = None             # (x0, y0, x1, y1) at processing size: track the hand inside the wall area
 
     def run(self):
@@ -74,6 +75,7 @@ class MacCam(threading.Thread):
             with self.lock:
                 self.hist.append((t, lms))
                 self.frame = small
+                self.latest_t = t
         cap.release()
         hands.close()
 

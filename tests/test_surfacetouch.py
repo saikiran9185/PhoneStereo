@@ -179,3 +179,68 @@ def test_recorder_writes_videos_and_csv(tmp_path):
     assert int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) == 10
     cap = cv2.VideoCapture(str(tmp_path / "v" / "mac.mp4"))
     assert int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) == 10           # late camera padded, still aligned
+
+
+def test_zoom_unrotate_matches_numpy_rotation():
+    import numpy as np
+    from surfacetouch import zoom
+    raw = np.zeros((30, 40), np.uint8)
+    raw[7, 25] = 255                                         # (x=25, y=7)
+    for turn in range(4):
+        rot = np.rot90(raw, -turn)
+        y, x = np.argwhere(rot == 255)[0]
+        back = zoom.unrotate([[x, y]], turn, 40, 30)[0]
+        assert np.allclose(back, [25, 7]), (turn, back)
+
+
+def test_zoom_crop_covers_wall_with_margin_and_limits():
+    import numpy as np
+    from surfacetouch import zoom
+    wall = np.array([[400, 300], [560, 300], [560, 420], [400, 420]], float)     # in a 960x720 view, turn 0
+    c = zoom.crop_for(wall, 0, 960, 720)
+    x0, y0, x1, y1 = c
+    assert x0 < 400 / 960 and x1 > 560 / 960 and y0 < 300 / 720 and y1 > 420 / 720
+    assert abs((x1 - x0) - (y1 - y0)) < 1e-3                 # 4:3 in pixels = equal in normalised units
+    assert zoom.zoom_factor(c) <= zoom.MAX_ZOOM + 1e-6
+    assert zoom.crop_for(np.array([[5, 5], [955, 5], [955, 715], [5, 715]], float), 0, 960, 720) is None
+    # a second zoom step inside an existing crop maps back to full-sensor coordinates
+    c2 = zoom.crop_for(wall, 0, 960, 720, current=(0.25, 0.25, 0.75, 0.75))
+    assert 0.25 <= c2[0] and c2[2] <= 0.75 + 1e-6
+
+
+def test_finger_lock_ignores_brief_thumb_flicker():
+    import numpy as np
+    from surfacetouch.replay import FingerLock
+    def hand(thumb_out):
+        lm = np.zeros((21, 2), np.float32)
+        lm[0], lm[9] = (0, 100), (0, 50)                     # palm 50 px
+        lm[5], lm[8] = (0, 50), (0, 0)                       # index out (50 px)
+        lm[2], lm[4] = (-20, 60), ((-20 - (90 if thumb_out else 10)), 60)
+        lm[9], lm[12] = (0, 50), (0, 40)
+        return lm
+    fl = FingerLock()
+    assert fl.tip(hand(False), 0.0) == 8
+    assert fl.tip(hand(True), 0.1) == 8                      # thumb looks longer for one frame: keep index
+    assert fl.tip(hand(False), 0.2) == 8
+    for t in (1.0, 1.2, 1.4):                                # thumb really pointing for 0.4 s: switch
+        k = fl.tip(hand(True), t)
+    assert k == 4
+
+
+def test_replay_runs_on_a_recorded_session(tmp_path):
+    import json
+    import numpy as np
+    from surfacetouch import record, replay
+    base = str(tmp_path / "surface_x")
+    rec = record.Recorder(base + "_video", log=lambda *a: None)
+    rec.start()
+    for i in range(30):
+        img = np.full((240, 320, 3), 200, np.uint8)
+        rec.add({"main": img, "wide": img, "mac": img},
+                {"t": i * 0.05, "mode": "teach", "cue": "HOLD", "spot": 0, "ready": 0, "tx": 0.5, "ty": 0.5,
+                 "button": int(i > 10), "calib": 1})
+    rec.stop()
+    json.dump({"id": 1, "Hs": np.eye(3).tolist(), "Hp": None, "Hm": None, "turn": 0, "W": 320, "H": 240,
+               "roi": [None, None], "mac_roi": None}, open(base + "_video/calib_1.json", "w"))
+    rep = replay.run(base, log=lambda *a: None)
+    assert rep["frames"] == 30 and rep["phone_tracked_pct"] == 0.0     # no hand in a blank wall: nothing invented
