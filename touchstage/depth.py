@@ -77,7 +77,8 @@ def hand_mask(shape, lm):
     return m
 
 
-def off_wall_mm(dep, lm):
+def off_wall_mm(dep, lm, info=None):
+    """mm the fingertip pad sits in front of the wall around the hand. info (dict) gets the pieces for display."""
     lm = np.asarray(lm, float)
     p = lm[8] + 0.3 * (lm[7] - lm[8])                       # finger pad, not its edge
     L = float(np.linalg.norm(lm[9] - lm[0])) + 1e-6
@@ -92,7 +93,10 @@ def off_wall_mm(dep, lm):
     ring = (rr > 0.6 * L) & (rr < 1.6 * L) & (mask == 0)
     if ring.sum() < 30:
         return None
-    return 1000.0 * (float(np.median(dep[ring])) - tip)
+    wall = float(np.median(dep[ring]))
+    if info is not None:
+        info.update(tip_pt=(x, y), ring=ring, wall_m=wall, tip_m=tip)
+    return 1000.0 * (wall - tip)
 
 
 def tile(crop, dep, lm, size_wh, rng=None):
@@ -135,7 +139,9 @@ class Cam:
         self.box = None                                 # smoothed crop (centre, side)
         self.rng = [None, None]
         self.lost_since = None
+        self.scale = 1.9
         self.seen = False
+        self.last = None                                # (crop, depth, landmarks in crop, info) for the explainer
 
     def feed(self, r, smooth, t):
         self.raw = r
@@ -154,7 +160,8 @@ class Cam:
         self.hist.append((t, self.value))
         self.t = t
 
-    def crop_box(self, lm, scale=1.9):
+    def crop_box(self, lm, scale=None):
+        scale = scale or self.scale
         lm = np.asarray(lm, float)
         c = (lm.min(0) + lm.max(0)) / 2
         side = max(np.ptp(lm[:, 0]), np.ptp(lm[:, 1]), 40) * scale
@@ -223,7 +230,9 @@ class DepthWorker(threading.Thread):
             self.ms = 1000 * (time.time() - t0)
             seen = set()
             for name, c, l, d in zip(who, crops, lms, deps):
-                self.cams[name].feed(off_wall_mm(d, l), self.smooth, t)
+                info = {}
+                self.cams[name].feed(off_wall_mm(d, l, info), self.smooth, t)
+                self.cams[name].last = (c, d, l, info)
                 self.cams[name].tile = tile(c, d, l, (350, 262), self.cams[name].rng)
                 seen.add(name)
             for name, cam in self.cams.items():
