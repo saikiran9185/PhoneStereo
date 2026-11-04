@@ -77,7 +77,10 @@ class MacCam(threading.Thread):
                 self.frame = small
                 self.latest_t = t
         cap.release()
-        hands.close()
+        try:
+            hands.close()
+        except Exception:                                 # interpreter already shutting down: nothing to free
+            pass
 
     def latest(self):
         with self.lock:

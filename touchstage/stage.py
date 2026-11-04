@@ -14,6 +14,8 @@ import argparse
 import collections
 import json
 import os
+import signal
+import subprocess
 import time
 
 import cv2
@@ -29,6 +31,24 @@ from .depth import BONES as BONES_, DepthWorker
 DASH = "Touch Stage"
 ENTER, EXIT, HOLD_S = 0.35, 0.65, 0.20          # closeness to flip to TOUCH / back to HOVER, and for how long
 LEVELS = os.path.join(CONF_DIR, "touchstage_levels.json")
+LOCK = os.path.join(CONF_DIR, "touchstage.pid")
+
+
+def single_instance(log=print):
+    """Only one Touch Stage may own the phone camera: a newer start closes the older one."""
+    try:
+        old = int(open(LOCK).read().strip())
+        cmd = subprocess.run(["ps", "-p", str(old), "-o", "command="], capture_output=True, text=True).stdout
+        if old != os.getpid() and ("run_touchstage" in cmd or "run_surfacetouch" in cmd):   # never a reused pid
+            os.kill(old, signal.SIGTERM)
+            log(f"closed the older Touch Stage (pid {old}) - only one can use the phone camera")
+            for _ in range(30):
+                time.sleep(0.1)
+                os.kill(old, 0)
+    except (OSError, ValueError):
+        pass
+    os.makedirs(CONF_DIR, exist_ok=True)
+    open(LOCK, "w").write(str(os.getpid()))
 BG, PANEL, TXT, DIM = (28, 24, 22), (44, 38, 34), (235, 235, 235), (150, 150, 150)
 GREEN, BLUE, AMBER, GREY = (90, 210, 90), (230, 160, 60), (40, 180, 240), (120, 120, 120)
 PURPLE, YELLOW = (230, 120, 200), (80, 210, 250)
@@ -388,8 +408,24 @@ class Stage(App):
         except cv2.error:
             pass
 
+    def reconnect(self):
+        """Phone stream dropped (camera busy, cable, phone app): restart it and keep the wall calibration."""
+        keep = (self.Hs, self.white, list(self.pair.roi), self.pair.Hp, self.pair.turn)
+        if self.a.zoom:
+            self.restart_stream(self.crop)
+        else:
+            self.pair.running = False
+            self.pair.rx.running = False
+            self.pair = Pair(self.log, self.a.host, self.a.token, keep[4], boost=False)
+            self.pair.start()
+        self.Hs, self.white = keep[0], keep[1]
+        self.pair.roi, self.pair.Hp = keep[2], keep[3]
+        self.cal_msg = "phone stream reconnected"
+
     # ---- main loop (replaces the old wizard / experiments)
     def run(self):
+        single_instance(self.log)
+        signal.signal(signal.SIGTERM, lambda *_: (_ for _ in ()).throw(KeyboardInterrupt()))
         turn = (self.saved or {}).get("turn", self.a.turn)
         if self.a.zoom:
             zoom.start_streamer(self.a.token, None, self.a.stream_size, log=self.log)
@@ -406,6 +442,7 @@ class Stage(App):
         cv2.moveWindow(DASH, int(o["x"]) + 10, int(o["y"]) + 30)
         self.open_full()
         last_t = None
+        last_frame_t, last_fix = time.time(), time.time()
         self.go("markers")
         try:
             while True:
@@ -414,6 +451,7 @@ class Stage(App):
                 if got is not None and got["t"] != last_t:
                     last_t, fr = got["t"], got
                     self.ftimes.append(now)
+                    last_frame_t = now
                     self.last_fr = fr
                     if self.state == "markers":
                         self.markers_step(fr)
@@ -421,6 +459,11 @@ class Stage(App):
                         self.white_step(fr)
                     elif self.state == "stage":
                         self.stage_frame(fr, now)
+                if now - last_frame_t > 3.0 and now - last_fix > 8.0:
+                    self.log("no phone frames for 3 s - reconnecting the phone camera", show=True)
+                    self.cal_msg = "phone stream lost - reconnecting..."
+                    last_fix = now
+                    self.reconnect()
                 self.read_sliders()
                 if self.state == "stage":
                     self.decide(now)
@@ -444,13 +487,21 @@ class Stage(App):
                 if k == ord("c"):
                     self.Hs = self.white = None
                     self.go("markers")
+        except KeyboardInterrupt:
+            pass
         finally:
             self.worker.running = False
             self.pair.running = False
             self.pair.rx.running = False
             if self.mac:
                 self.mac.running = False
+                self.mac.join(timeout=2)                  # let it free MediaPipe before Python exits
             cv2.destroyAllWindows()
+            try:
+                if int(open(LOCK).read().strip()) == os.getpid():
+                    os.remove(LOCK)
+            except (OSError, ValueError):
+                pass
 
 
 def main():
