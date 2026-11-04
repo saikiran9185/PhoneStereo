@@ -449,17 +449,33 @@ struct ContentView: View {
                 .padding(4)
             }
 
-            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
-                ForEach(Mode.allCases) { mode in
-                    Button { m.launch(mode) } label: {
-                        Text(mode.rawValue).frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(mode == .surface ? .purple : mode == .touch || mode == .touch3d ? .blue : mode == .air ? .green : mode == .speed ? .pink : mode == .depth ? .cyan : mode == .link ? .gray : .orange)
-                    .controlSize(.large)
-                    .disabled(m.ip == nil || m.running != nil)
+            Button { m.launch(.surface) } label: {
+                VStack(spacing: 2) {
+                    Text("Touch Stage").font(.title2.bold())
+                    Text("projector wall · phone = where, phone + Mac AI depth = touch").font(.caption)
                 }
+                .frame(maxWidth: .infinity).padding(.vertical, 6)
             }
+            .buttonStyle(.borderedProminent)
+            .tint(.purple)
+            .controlSize(.large)
+            .disabled(m.ip == nil || m.running != nil)
+
+            DisclosureGroup("Archived tools (older experiments, still work)") {
+                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
+                    ForEach(Mode.allCases.filter { $0 != .surface }) { mode in
+                        Button { m.launch(mode) } label: {
+                            Text(mode.rawValue).frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.regular)
+                        .disabled(m.ip == nil || m.running != nil)
+                    }
+                }
+                .padding(.top, 6)
+            }
+            .foregroundStyle(.secondary)
+
             if let r = m.running {
                 HStack {
                     ProgressView().controlSize(.small)
