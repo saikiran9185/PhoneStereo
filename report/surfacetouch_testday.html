@@ -52,19 +52,19 @@ ul,ol{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:8px;max-
 <header class="head">
   <p class="muted">SurfaceTouch · projector test · 4 November 2026</p>
   <h1>Test day report</h1>
-  <p class="muted">Every session run today with the Epson projector, the POCO M4 Pro phone and, for part of the day, the Mac camera. All numbers come from the session logs in <code>logs/surface_20261104_*</code>.</p>
+  <p class="muted">Every session run today (11:12–12:15) with the Epson projector, the POCO M4 Pro phone and, for part of the day, the Mac camera. All numbers come from the session logs and recorded video in <code>logs/surface_20261104_*</code>.</p>
 </header>
 
 <div class="verdict">
   <h3>Result: wall mapping works, touch detection does not yet</h3>
-  <p>The cameras find the projected wall reliably, and the hand tracker usually puts the index fingertip on the right spot. Telling a touch from a hover failed in every run. The best run found 72% of touches, but it also fired on hover targets 16 times out of 6. The shadow signal, the main idea of V1, was not visible at all at today's camera distance.</p>
+  <p>The cameras find the projected wall reliably, and with the new finger lock the pointer lands on the dot in 84% of held touches. Telling a touch from a hover failed in every run: the best run found 72% of touches but also fired 16 times on 6 hover targets. With the phone beside the projector, the camera sees the wall from almost where the light comes from, so the finger's shadow hides behind the finger. The phone can give position; touch needs a second viewpoint.</p>
 </div>
 
 <div class="stats">
   <div class="stat"><b>12</b><span class="muted small">calibrations, 11 with 12 or more of 15 markers</span></div>
   <div class="stat"><b>0.2–0.4%</b><span class="muted small">of wall width: calibration fit (2.5–5.9 pt)</span></div>
   <div class="stat"><b>0–1.3%</b><span class="muted small">of frames where a finger shadow was found</span></div>
-  <div class="stat"><b>65%</b><span class="muted small">of held touches where the index tip, not the thumb, was nearest the dot</span></div>
+  <div class="stat"><b>75 → 84%</b><span class="muted small">of still touches with the pointer on the dot, before and after the finger lock</span></div>
 </div>
 
 <section>
@@ -93,14 +93,16 @@ ul,ol{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:8px;max-
     <tr><td>11:37–11:41</td><td>Phone</td><td>7 launches</td><td>8 stream errors: the phone streamer froze and was restarted</td></tr>
     <tr><td>11:42</td><td>Phone</td><td>Experiment T (new button-label test), 3,326 frames</td><td>Button never registered (0% held), so no labels. Tracking measured from the cues</td></tr>
     <tr><td>11:45</td><td>Phone</td><td>Experiment B with the 11:30 model</td><td>4 of 25 found (16%), 3 false on 6 traps, median error 42% of width</td></tr>
+    <tr><td>12:10–12:11</td><td>Phone, zoom</td><td>Zoom mode started by Claude</td><td>Stopped when the phone app was reopened and restarted its own camera stream</td></tr>
+    <tr><td>12:12</td><td>Phone</td><td>Experiment B, started from the Mac app (no zoom, no Mac camera), first recorded session</td><td>5 of 25 found (20%), 3 false on 6 traps, median error 8% of width. 4,009 frames of video, none dropped</td></tr>
   </table></div>
 </section>
 
 <section>
-  <h2>Accuracy grid, three runs</h2>
+  <h2>Accuracy grid, four runs</h2>
   <p>Experiment B asks for 25 touches on a 5 × 5 grid, plus 6 targets to hover over without touching. A working system finds all 25 and fires on none of the 6.</p>
   <div class="legend"><span><span class="sw" style="background:var(--bar)"></span>touches found (of 25)</span><span><span class="sw" style="background:var(--bar2)"></span>false touches per hover target</span></div>
-  <div class="chart" role="img" aria-label="Touches found: 0%, 72%, 16%. False touches per hover target: 0, 2.7, 0.5.">
+  <div class="chart" role="img" aria-label="Touches found: 0%, 72%, 16%, 20%. False touches per hover target: 0, 2.7, 0.5, 0.5.">
     <div class="row"><span class="small">11:18 phone, shadow rule</span>
       <div class="track"><div class="fill" style="width:0%"></div><span class="val" style="left:0%">0%</span></div></div>
     <div class="row"><span class="small"></span>
@@ -111,6 +113,10 @@ ul,ol{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:8px;max-
       <div class="track"><div class="fill alt" style="width:89%"></div><span class="val" style="left:72%;color:var(--canvas)">2.7 per trap</span></div></div>
     <div class="row"><span class="small">11:45 phone, trained model</span>
       <div class="track"><div class="fill" style="width:16%"></div><span class="val" style="left:16%">16%</span></div></div>
+    <div class="row"><span class="small"></span>
+      <div class="track"><div class="fill alt" style="width:16.7%"></div><span class="val" style="left:16.7%">0.5 per trap</span></div></div>
+    <div class="row"><span class="small">12:12 phone, trained model</span>
+      <div class="track"><div class="fill" style="width:20%"></div><span class="val" style="left:20%">20%</span></div></div>
     <div class="row"><span class="small"></span>
       <div class="track"><div class="fill alt" style="width:16.7%"></div><span class="val" style="left:16.7%">0.5 per trap</span></div></div>
   </div>
@@ -126,6 +132,8 @@ ul,ol{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:8px;max-
     <tr><td>Two-view split (phone vs Mac)</td><td>11:27</td><td class="n">0.35</td><td>Backwards: touches split more (median 0.54 finger lengths) than hovers (0.33). The two cameras were not tracking the same point at the same moment.</td></tr>
     <tr><td>Phone lens parallax</td><td>11:30</td><td class="n">0.73</td><td>The only signal with some separation, but on hover heights that were guessed</td></tr>
     <tr><td>Phone lens parallax</td><td>11:42</td><td class="n">0.57</td><td>Hold vs near-miss and wave cues: close to guessing</td></tr>
+    <tr><td>Phone lens parallax</td><td>12:12 replay</td><td class="n">0.68</td><td>Instruction labels, only 45 usable frames</td></tr>
+    <tr><td>Touch model, new positions</td><td>12:12 replay</td><td class="n">0.56</td><td>Trained and tested on different targets: the phone alone cannot tell touch from hover</td></tr>
     <tr><td>11:30 model, as run live</td><td>11:42</td><td class="n">0.75</td><td>Partly because the parallax measure drops out when the finger is on the wall (available in 24% of hold frames vs 70–94% when hovering). Labels here are cues, not checked.</td></tr>
   </table></div>
 </section>
@@ -139,6 +147,14 @@ ul,ol{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:8px;max-
     <tr><td>TAP</td><td class="n">676</td><td class="n">81.1%</td><td class="n">16.6%</td><td class="n">2.4%</td><td class="n">1.4%</td><td class="n">6.8%</td></tr>
   </table></div>
   <p>The index tip is usually right: its median error is 1.4–1.9% of the wall width. But in a third of held touches the thumb landed nearer the dot, which is the confusion you saw. The hand was tracked in 65–82% of frames depending on the cue.</p>
+  <h3>Fix tested on recorded video: finger lock</h3>
+  <p>The finger lock picks the most extended finger as the pointer and keeps it unless another finger is clearly more extended for 0.3 s. Replayed on the 12:12 video, on frames where you held still on a touch target:</p>
+  <div class="tw"><table>
+    <tr><th>Pointer</th><th class="n">Still touch frames</th><th class="n">On the dot (within 4% of width)</th><th class="n">Median error</th><th class="n">75th percentile error</th></tr>
+    <tr><td>Tracker's index tip</td><td class="n">253</td><td class="n">74.7%</td><td class="n">1.9%</td><td class="n">4.1%</td></tr>
+    <tr><td>Finger lock</td><td class="n">276</td><td class="n">84.1%</td><td class="n">2.0%</td><td class="n">2.4%</td></tr>
+  </table></div>
+  <p>In 65 frames the lock chose the point the tracker had named "thumb", and those frames were on the dot: the tracker sometimes labels your pointing finger as the thumb. The lock is now on in the live app.</p>
 </section>
 
 <section>
@@ -147,12 +163,20 @@ ul,ol{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:8px;max-
     <div><span class="tag">Experiment A</span><p>It asks for hovers at 10, 20, 30 and 50 mm. Nobody can hold a finger at a measured height in the air, so every hover label was a guess, and the model learned from guesses.</p></div>
     <div><span class="tag">Experiment T</span><p>The new test takes its label from a mouse button or Shift held in the other hand exactly while the finger touches. You can always feel a touch, so the label is exact. Today's run recorded no presses, so it produced no labels.</p></div>
   </div>
-  <p class="muted">The button reader works when tested on its own. Whether the button wasn't pressed or the press didn't reach the app can't be told from the logs, so the test now refuses to start until it sees one press and release.</p>
+  <p class="muted">The button reader works when tested on its own. Whether the button wasn't pressed or the press didn't reach the app can't be told from the logs, so the test now waits for one press and release.</p>
+  <div class="cols">
+    <div><span class="tag">No mouse</span><p>If no press comes within 8 seconds, labels come from the instructions, kept only where you visibly obey them: still and on the dot for a touch, still and close for a hover. Moving frames are dropped. On the 12:12 video this kept 312 of 2,537 frames (189 touch, 123 hover).</p></div>
+    <div><span class="tag">With Shift or a mouse</span><p>Still the more exact option. It keeps frames while you move, which gives about three times more data per session.</p></div>
+  </div>
 </section>
 
 <section>
   <h2>Changed today</h2>
   <ul>
+    <li><strong>Sensor zoom</strong> (<code>--zoom</code>): the phone stays by the projector, and its 4624 × 3472 sensor is cropped to the wall plus a margin, up to 3×. Checked on the phone: the crop applies to both lenses (2× gave 2312 × 1736 sensor pixels in the 960 × 720 stream). Not yet used in a session.</li>
+    <li><strong>Recording</strong>: every session saves phone, ultra-wide, Mac and review video, every calibration, and a frames.csv with cue, target, button, touch probability and state for each frame.</li>
+    <li><strong>Replay</strong>: re-runs tracking and touch signals on a recorded session and scores them, with a scan for the phone/Mac time offset. A 3-minute session takes about 90 s.</li>
+    <li><strong>Finger lock</strong> on by default (above).</li>
     <li><strong>Mac camera as a second view.</strong> Finds the same 15 markers, maps the fingertip onto the wall, and measures how far the two views disagree.</li>
     <li><strong>Wall-crop tracking.</strong> Each camera tracks the hand only inside the wall area plus a margin, so the hand looks bigger to the tracker.</li>
     <li><strong>Experiment T</strong> (key E): 8 spots × HOLD, NEAR, TAP, WAVE, labelled by the button, with frames within 150 ms of a press or release dropped. It reports the thumb/index confusion and trains the model. Old Experiment A moved to key A.</li>
@@ -166,17 +190,18 @@ ul,ol{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:8px;max-
   <div class="cols">
     <div><h3>Set up</h3>
       <ol>
-        <li>Phone 0.6–0.8 m from the wall, low and to one side, so the finger is 25 px or more long in the image</li>
+        <li>Phone by the projector on USB, phone app closed. SurfaceTouch started with <code>--zoom</code>, not from the Mac app</li>
         <li>Turn mirroring off (⌘ F1) so only the app is projected</li>
-        <li>Mac on the opposite side of the wall from the phone, camera seeing all 15 markers</li>
+        <li>Mac camera low at one edge of the wall, looking across it, seeing all 15 markers: it judges touch, the phone gives position</li>
         <li>Tape-measure the projected width so errors come out in mm</li>
         <li>Give PhoneStereo Accessibility permission for live mode</li>
       </ol></div>
     <div><h3>Run</h3>
       <ol>
-        <li>SPACE to calibrate; check the log says the Mac camera found the markers</li>
-        <li>E: Experiment T, pressing the button on every touch. The box top right must light up.</li>
+        <li>SPACE to calibrate, then wait for the second calibration in the zoomed view</li>
+        <li>E: Experiment T. Hold Shift while touching, or wait 8 s and hold still on each instruction</li>
         <li>V: Experiment B with the trained model</li>
+        <li>Q to finish so the video is saved, then replay</li>
         <li>Pass: 95% of touches found, no more than 1 false touch on the 6 traps</li>
       </ol></div>
   </div>
