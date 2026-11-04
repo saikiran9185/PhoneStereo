@@ -36,7 +36,7 @@ enum Mode: String, CaseIterable, Identifiable {
         }
     }
     var extra: [String] { self == .signsPhone ? ["--no-mac"] : [] }
-    var needsMacCamera: Bool { self == .signs3 || self == .air || self == .speed }
+    var needsMacCamera: Bool { self == .signs3 || self == .air || self == .speed || self == .surface }
 }
 
 enum Link: String, CaseIterable, Identifiable {
@@ -306,6 +306,11 @@ final class Model: ObservableObject {
     private func start(_ mode: Mode, ip: String) {
         var args = [mode.script, "--host", ip, "--token", code.trimmingCharacters(in: .whitespaces)] + mode.extra
         if link == .usb && mode != .link { _ = runAdb(["-s", usbSerial ?? "", "forward", "tcp:27183", "tcp:27183"]) }
+        if mode == .surface && link == .usb {
+            // Zoom the phone sensor onto the wall (the phone stays by the projector). Needs the USB streamer
+            // (./build_streamer.sh); it closes the phone app, which would restart its own un-zoomed stream.
+            args.append("--zoom")
+        }
         if (mode == .touch || mode == .touch3d || mode == .surface) && !AXIsProcessTrusted() {
             // Live touch posts mouse clicks and arrow keys: macOS asks for Accessibility once.
             let opts = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
