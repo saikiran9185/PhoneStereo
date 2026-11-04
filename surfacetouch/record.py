@@ -16,7 +16,7 @@ import threading
 import cv2
 import numpy as np
 
-FPS = 20.0
+FPS = 22.0               # measured phone rate today (4,009 frames in 182 s): plays at about real speed
 
 
 class Recorder(threading.Thread):
