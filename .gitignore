@@ -27,3 +27,6 @@ android/app/build/
 android/local.properties
 mac/build/
 .claude/
+
+# phone streamer build output (./build_streamer.sh)
+build/
