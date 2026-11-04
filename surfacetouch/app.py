@@ -31,7 +31,7 @@ import viewer as V
 from touch3d import ARUCO, Pair
 from touchscreen import ax_ok, displays, key, mouse, tink
 
-from . import contact, maccam, shadow, teach
+from . import contact, maccam, record, shadow, teach
 from .state import TouchStateMachine
 
 S.NUM_HANDS = 2
@@ -762,6 +762,11 @@ class App:
         turn = (self.saved or {}).get("turn", self.a.turn)
         self.pair = Pair(self.log, self.a.host, self.a.token, turn, boost=False)
         self.pair.start()
+        self.rec = None
+        if not self.a.no_record:
+            self.rec = record.Recorder(self.base + "_video", self.log)
+            self.rec.start()
+        last_canvas = None
         if not self.a.no_mac:
             self.mac = maccam.MacCam(self.a.mac_cam, self.log)
             self.mac.start()
@@ -800,9 +805,27 @@ class App:
                         self.open_full()
                         full = True
                     c = self.canvas()
+                    last_canvas = c
                     self.render_hist.append((time.time(), cv2.resize(cv2.cvtColor(c, cv2.COLOR_BGR2GRAY), (480, int(480 * c.shape[0] / c.shape[1]))).astype(np.float32) / 255))
                     cv2.imshow(WIN, c)
-                cv2.imshow(DIAG, self.diag(fr))
+                dimg = self.diag(fr)
+                cv2.imshow(DIAG, dimg)
+                if self.rec and fr is not None and fr["t"] != getattr(self, "_rec_t", None):
+                    self._rec_t = fr["t"]
+                    cue = ""
+                    if self.state == "teach" and getattr(self, "ti", 0) < len(getattr(self, "tplan", [])):
+                        cue = self.tplan[self.ti]["cue"]
+                    elif self.state == "collect" and self.ci < len(self.plan):
+                        cue = self.plan[self.ci][1]
+                    elif self.state == "validate" and self.vi < len(self.vplan):
+                        cue = self.vplan[self.vi][0]
+                    self.rec.add({"main": fr["a"], "wide": fr["b"], "mac": self.mac.latest() if self.mac else None,
+                                  "review": record.review_frame(dimg, last_canvas if last_canvas is not None else dimg)},
+                                 {"t_recv": round(fr["t_recv"], 3), "t": round(now, 3), "mode": self.state, "cue": cue,
+                                  "button": int(teach.button_down()), "p": round(self.p, 3), "touch_state": self.sm.state,
+                                  "x": None if self.cur_pos is None else round(self.cur_pos[0], 4),
+                                  "y": None if self.cur_pos is None else round(self.cur_pos[1], 4),
+                                  "hand": fr["src"] or ""})
                 k = cv2.waitKey(5) & 0xFF
                 if k in (ord("q"), 27):
                     break
@@ -842,6 +865,8 @@ class App:
             self.pair.rx.running = False
             if self.mac:
                 self.mac.running = False
+            if self.rec:
+                self.rec.stop()
             cv2.destroyAllWindows()
 
 
@@ -854,6 +879,7 @@ def main():
     ap.add_argument("--wall-cm", type=float, help="width of the projected image in cm (for errors in mm)")
     ap.add_argument("--mac-cam", type=int, default=0, help="Mac camera index (second viewpoint of the wall)")
     ap.add_argument("--no-mac", action="store_true", help="phone cameras only")
+    ap.add_argument("--no-record", action="store_true", help="don't record session video")
     ap.add_argument("--phone-lag", type=float, default=0.06, help="phone frame delay vs Mac camera, s")
     a = ap.parse_args()
     App(a).run()

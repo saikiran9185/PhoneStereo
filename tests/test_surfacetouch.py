@@ -160,3 +160,22 @@ def test_teach_labels_and_tracking():
     assert rep["cv_auc"] > 0.95
     assert rep["tracking"]["phone"]["closest_to_dot_pct"]["thumb"] == 100.0
     assert rep["button_held_pct_by_cue"]["HOLD"] == 100.0 and rep["button_held_pct_by_cue"]["NEAR"] == 0.0
+
+
+def test_recorder_writes_videos_and_csv(tmp_path):
+    import csv
+    import numpy as np
+    import cv2
+    from surfacetouch import record
+    r = record.Recorder(str(tmp_path / "v"), log=lambda *a: None)
+    r.start()
+    for i in range(10):
+        img = np.full((120, 160, 3), i * 20, np.uint8)
+        r.add({"main": img, "mac": None if i < 3 else img}, {"t": i * 0.05, "mode": "teach"})
+    r.stop()
+    rows = list(csv.DictReader(open(tmp_path / "v" / "frames.csv")))
+    assert len(rows) == 10 and rows[0]["mode"] == "teach"
+    cap = cv2.VideoCapture(str(tmp_path / "v" / "main.mp4"))
+    assert int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) == 10
+    cap = cv2.VideoCapture(str(tmp_path / "v" / "mac.mp4"))
+    assert int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) == 10           # late camera padded, still aligned
