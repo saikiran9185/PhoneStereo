@@ -68,6 +68,11 @@ def start_streamer(token, crop=None, size="960x720", port=27183, log=print):
     if subprocess.run([ADB, "shell", f"ls {JAR}"], capture_output=True, text=True).returncode != 0:
         log("zoom streamer missing on the phone: run ./build_streamer.sh", show=True)
         return False
+    # The phone app would restart its own (un-zoomed) streamer and kill this one: close it. Keep the screen awake
+    # on USB power instead, or MIUI face unlock grabs the camera when the screen sleeps.
+    sh("am force-stop dev.saikiran.phonestereo")
+    sh("svc power stayon usb")
+    sh("input keyevent KEYCODE_WAKEUP")
     sh("pkill -f '[p]honestereo.StereoStream'")
     time.sleep(1.2)
     c = "" if crop is None else " --crop0 " + ",".join(f"{v:.4f}" for v in crop)

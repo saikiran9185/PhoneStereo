@@ -88,3 +88,19 @@ for shadows (tested).
       performance.
 - [ ] First projector session (planned 4 Nov 2026)
 - [ ] Browser canvas over WebSocket, multi-finger
+
+## Zoom, recording and replay (added 4 Nov 2026)
+
+**Zoom** (phone stays by the projector): `./build_streamer.sh` once, then
+`.venv/bin/python run_surfacetouch.py --host 127.0.0.1 --token <code> --zoom`.
+The first calibration finds the wall in the full view, the phone sensor is cropped to the wall plus a margin
+(up to 3×, both lenses), and the app calibrates again in the zoomed view. Zoom mode closes the phone app
+(it would restart its own un-zoomed streamer) and keeps the screen awake over USB.
+
+**Recording** (default on, `--no-record` to skip): `logs/surface_<time>_video/` holds `main.mp4`, `wide.mp4`,
+`mac.mp4`, `review.mp4` (diagnostics + projected wall), `frames.csv` (cue, target, button, contact p, state),
+and every calibration (`calib_<n>.json`, `white_<n>.npy`).
+
+**Replay**: `.venv/bin/python -m surfacetouch.replay logs/surface_<time>` re-runs tracking and features on the
+recorded video, scans the Mac/phone time offset, and scores everything on the Experiment T button labels.
+`--finger lock` tries the pointing-finger lock against thumb/index swaps.
