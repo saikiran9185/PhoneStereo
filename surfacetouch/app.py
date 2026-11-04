@@ -369,6 +369,26 @@ class App:
         M = np.linalg.inv(self.Hs) @ np.diag([1 / sx, 1 / sx, 1.0])
         return cv2.warpPerspective(g, M, (shape[1], shape[0]), flags=cv2.INTER_LINEAR, borderValue=0)
 
+    LIVE_DIR = os.path.expanduser("~/Library/Caches/surfacetouch_live")
+
+    def live_feed(self, fr, now):
+        """Hand the newest phone frame + fingertip to the live depth viewer (only while it runs: it creates 'want')."""
+        if now - getattr(self, "_feed_t", 0) < 0.06 or not os.path.exists(os.path.join(self.LIVE_DIR, "want")):
+            return
+        self._feed_t = now
+        try:
+            cv2.imwrite(os.path.join(self.LIVE_DIR, "f.tmp.jpg"), fr["a"], [cv2.IMWRITE_JPEG_QUALITY, 90])
+            lm = fr.get("lm_a")
+            cue = self.tplan[self.ti]["cue"] if self.state == "teach" and getattr(self, "tplan", None) and self.ti < len(self.tplan) else ""
+            meta = {"t": now, "lm": None if lm is None else np.round(lm, 1).tolist(), "state": self.sm.state,
+                    "p": round(float(self.p), 3), "mode": self.state, "cue": cue}
+            with open(os.path.join(self.LIVE_DIR, "m.tmp.json"), "w") as f:
+                json.dump(meta, f)
+            os.replace(os.path.join(self.LIVE_DIR, "f.tmp.jpg"), os.path.join(self.LIVE_DIR, "frame.jpg"))
+            os.replace(os.path.join(self.LIVE_DIR, "m.tmp.json"), os.path.join(self.LIVE_DIR, "meta.json"))
+        except Exception:
+            pass
+
     def process(self, fr, now):
         self.frame_age.append(now - fr["t_recv"])
         valid = fr["src"] is not None
@@ -1062,6 +1082,7 @@ class App:
                         self.sidecal_step(fr, now)
                     elif (self.side and self.Hside is not None) or (self.Hs is not None and self.white is not None):
                         self.process(fr, now)
+                    self.live_feed(fr, now)
                 if self.state == "collect":
                     self.collect_tick(now)
                 if self.state == "validate":
