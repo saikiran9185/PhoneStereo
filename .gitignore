@@ -19,3 +19,14 @@ piano_keys.json
 sticky_pads.json
 studio_project.json
 sounds/
+
+# Android / Mac app build output and local SDK path
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+mac/build/
+.claude/
+
+# phone streamer build output (./build_streamer.sh)
+build/

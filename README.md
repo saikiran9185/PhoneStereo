@@ -23,6 +23,56 @@ curl -L -o hand_landmarker.task \
 Needs the Android SDK (adb, build-tools `d8`) in `~/Library/Android/sdk`, openjdk 17, and the phone plugged in
 with USB debugging on. The launch scripts build and push the streamer themselves.
 
+## Wireless: phone app + Mac app
+No cable, no adb on the Mac.
+
+- **Phone app** (`android/`, package `dev.saikiran.phonestereo`). Xiaomi lets only the shell user open the
+  second back camera, so the app's **Start stereo** button runs `StereoStream` (packed in the APK) as shell
+  through **Shizuku**, listening on Wi-Fi port 27183. It shows a 4-digit pairing code and announces itself
+  over Bonjour (`_phonestereo._tcp`). The stream only starts after the Mac sends `PS <code>`. Long-press the
+  code to make a new one. Keep the app open with the screen on: if the screen sleeps, MIUI face unlock takes
+  the camera.
+- **Mac app**: `./make_mac_app.sh` builds `~/Applications/PhoneStereo.app`, a native SwiftUI app
+  (`mac/PhoneStereoApp.swift`). It finds the phone over Bonjour, pairs with the code (saved in
+  `~/.config/phonestereo/pairing.json`), asks macOS for the camera, and runs Live depth / Sign Check as child
+  processes, so camera + local-network permission belong to the app. CLI fallback: `connect.py`, or
+  `.venv/bin/python viewer.py --host <phone ip> --token <code>`.
+- Build and install the phone app: `cd android && ./gradlew assembleDebug`, then
+  `adb install -r app/build/outputs/apk/debug/app-debug.apk`.
+- Shizuku must be running (Shizuku app → Start via Wireless debugging, once after every reboot).
+
+`signs.py` is **Sign Check**, a hand-sign game that scores the Mac camera, phone main and phone ultra-wide
+against each other (and fused), then compares stereo depth with single-camera hand size (PUSH / TILT rounds).
+Each camera estimates how open each finger is (joint angles on MediaPipe's 3D landmarks); fusion reads each
+finger from the camera that has been right most often about it (`logs/trust.json`, re-learned after every
+game from the labelled rounds). The two phone lenses count as one view (they are 1 cm apart). First
+measured gain (3 Nov, cross-validated): Mac alone 79% → 3 cameras 89% of frames; thumbs-up 0% → 78%.
+
+## Research tools (3 Nov 2026)
+| Script | What it does |
+|---|---|
+| `speedtest.py` | **Sign Cue Test**: cues 6 signs at random times, scores Mac camera / phone 2 cameras / all 3 against known ground truth (recognised %, latency, added delay, settled accuracy, per-sign, confusion). Saves every frame (finger probabilities, 21 landmarks, size, brightness) for research |
+| `research.py` | Re-scores all cue sessions offline with several fusion methods (leave-one-session-out trust, average, vote) and bootstrap 95% CIs → `logs/research/results.json`. `--phone front` for front-camera sessions |
+| `airbuttons.py` | Air Buttons: point at on-screen buttons, push toward the screen to press (Mac hand-scale depth + optional phone stereo), with a timed check |
+| `linktest.py` | Wi-Fi vs USB stream test: fps, gaps, stalls, jitter |
+| `report/sign_study.html` | The study write-up (3 sessions, 90 cues) |
+
+First results (back phone pair, frontal placement): Mac alone 94% recognised / 85% settled; phone pair 89% / 78%
+(+80 ms); all 3 with fairly learned trust = Mac (no gain, because both views face the hand head-on). THUMBS UP is the
+weak sign (read as FIST). USB: longest stall 68 ms vs 355 ms on Wi-Fi.
+
+**USB mode**: the Mac app's *Connection* switch can use a cable instead of Wi-Fi (`adb forward tcp:27183`).
+**Front camera**: the phone app's *Camera* button switches between the back pair (main + ultra-wide) and the front
+selfie camera, streamed alone.
+
+## SurfaceTouch: projector wall touch (V1)
+
+Touch a projected wall with your finger. The phone's main + ultra-wide cameras track the hand, and the
+projector's **shadow** of the finger decides touch vs hover. Includes the setup wizard, the touch-vs-hover
+experiment (trains the contact model), an accuracy grid, a demo wall, and live slide control.
+`run_surfacetouch.py`, package `surfacetouch/`, tests in `tests/`. Full guide and projector checklist:
+[docs/SURFACETOUCH.md](docs/SURFACETOUCH.md). Background: [Touch Screen Study](report/touch_study.html).
+
 ## Apps
 | Script | What it does |
 |---|---|
