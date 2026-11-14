@@ -65,7 +65,34 @@ weak sign (read as FIST). USB: longest stall 68 ms vs 355 ms on Wi-Fi.
 **Front camera**: the phone app's *Camera* button switches between the back pair (main + ultra-wide) and the front
 selfie camera, streamed alone.
 
-## SurfaceTouch: projector wall touch (V1)
+## Touch Stage: projector wall touch + hover (current)
+
+Draw on a projected wall with your finger. Gesture recognition, several cameras and AI depth work together:
+
+| Part | Job |
+|---|---|
+| **Phone camera** + projected ArUco calibration | **Where** the fingertip is on the wall (MediaPipe hand landmarks, ~0.6% of wall width) |
+| **Phone + Mac cameras** → Depth Anything V2 Small (metric indoor) | **How far** the finger is off the wall. Runs on hand crops from both cameras in one Apple GPU (MPS) batch, ~43 ms |
+| Fusion | **TOUCH / HOVER**, using your own levels: `T` = finger on the wall, `H` = finger 5–10 cm off. Smoothed, with a 0.2 s hold so it doesn't flicker |
+
+- Start: the purple main button in the Mac app, or `.venv/bin/python run_touchstage.py`. Code in `touchstage/`
+  (`stage.py` app + dashboard, `depth.py` depth worker).
+- The wall calibrates itself (markers flash for ~2 s). Keys: `F` both cameras / Mac only / phone only,
+  `M` depth model, `+`/`-` smoothing, `C` recalibrate, `X` clear, `Q` quit.
+- The dashboard shows all 3 camera feeds with hand skeletons, a per-camera depth explainer (wall ring vs
+  fingertip), live numbers, a graph and calibration sliders.
+- Only one copy runs at a time (pid lock), and it reconnects by itself when the phone stream drops.
+- Model weights and session videos are not in git: see [DATA.md](DATA.md). Depth test tools: `tools/depthtest/`.
+
+**What we learned (4 Nov 2026 test day):** camera-only touch vs hover failed every way we tried (shadow,
+1 cm phone stereo, phone + Mac two-view, side view). AI depth scored 72% offline with the metric model.
+Research reports: [Projected wall touch methods](reports/Projected%20wall%20touch%20methods.md) and
+[Phone-only wall touch without a camera](reports/Phone%20only%20wall%20touch%20no%20camera.md)
+(sonar sees the reach, not the touch; notes in `research_notes/`).
+
+## SurfaceTouch: projector wall touch (V1, archived)
+
+Archived on 4 Nov 2026 (git tag `surfacetouch-v1-archive`, `archive/run_surfacetouch_v1.py`), replaced by Touch Stage.
 
 Touch a projected wall with your finger. The phone's main + ultra-wide cameras track the hand, and the
 projector's **shadow** of the finger decides touch vs hover. Includes the setup wizard, the touch-vs-hover
